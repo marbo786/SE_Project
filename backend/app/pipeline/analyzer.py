@@ -1,4 +1,4 @@
-"""
+﻿"""
 Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
 Runs as a background task with its own database session.
 """
@@ -19,7 +19,7 @@ from .srs.parser import parse_srs
 from .uml.parser import parse_plantuml
 from .checks.srs_checks import run_all_srs_checks
 from .checks.uml_checks import run_all_uml_checks
-from .checks.llm_checks import check_testability, check_conflicts
+from .checks.llm_checks import check_testability, check_conflicts, generate_rewrites
 from .checks.traceability_checks import build_trace_links, check_traceability
 from .scoring import compute_scores
 
@@ -99,8 +99,7 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
 
         # ── LLM checks (run async checks from sync context) ──────────────
         if requirements:
-            loop = asyncio.new_event_loop()
-            try:
+            loop = asyncio.new_event_loop()            try:
                 llm_findings = loop.run_until_complete(
                     check_testability(requirements, db=db, submission_id=submission_id)
                 )
@@ -109,6 +108,10 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
                     check_conflicts(requirements, db=db, submission_id=submission_id)
                 )
                 all_findings += conflict_findings
+                
+                loop.run_until_complete(
+                    generate_rewrites(all_findings, db=db, submission_id=submission_id)
+                )
             except Exception:
                 pass  # LLM failure is non-fatal
             finally:
@@ -195,3 +198,4 @@ def _read_artifact_content(artifact: Artifact) -> str:
     """Read raw text content from an artifact file."""
     with open(artifact.file_path, 'r', encoding='utf-8', errors='ignore') as f:
         return f.read()
+

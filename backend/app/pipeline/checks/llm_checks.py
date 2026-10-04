@@ -129,3 +129,49 @@ async def check_conflicts(requirements: List[Dict], db=None, submission_id: int 
             'rewrite_suggestion': None
         })
     return findings
+
+REWRITE_SYSTEM_PROMPT = """You are an expert software requirements analyst.
+You will be given a list of defective requirements along with an explanation of their flaws (e.g., ambiguity, missing metrics, untestable, conflicts).
+Your task is to generate a corrected, professional rewrite for each requirement that resolves the issue while preserving the original intent.
+Return a JSON object with a key 'rewrites' containing a list. Each item has:
+- 'requirement_id': the ID of the requirement
+- 'rewrite_suggestion': the rewritten text
+Return ONLY valid JSON, no markdown, no extra text."""
+
+async def generate_rewrites(findings: List[Dict], db=None, submission_id: int = None) -> None:
+    "\"\"FR-407: Generate rewrite suggestions for defective requirements."\"\"
+    srs_findings = [f for f in findings if f.get('artifact_type') == 'srs' and f.get('requirement_id')]
+    
+    if not srs_findings:
+        return
+        
+    req_map = {}
+    for f in srs_findings:
+        rid = f['requirement_id']
+        if rid not in req_map:
+            req_map[rid] = {
+                'requirement_id': rid,
+                'original_text': f.get('quoted_text', ''),
+                'flaws': []
+            }
+        req_map[rid]['flaws'].append(f['explanation'])
+        
+    defects = list(req_map.values())
+    user_prompt = f"Rewrite these defective requirements to resolve the listed flaws:\n\n{json.dumps(defects, indent=2)}"
+    
+    try:
+        response_text = await call_llm(
+            REWRITE_SYSTEM_PROMPT, user_prompt,
+            db=db, submission_id=submission_id
+        )
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(0))
+            rewrite_map = {item.get('requirement_id'): item.get('rewrite_suggestion') for item in data.get('rewrites', [])}
+            
+            for f in srs_findings:
+                rid = f['requirement_id']
+                if rid in rewrite_map and rewrite_map[rid]:
+                    f['rewrite_suggestion'] = rewrite_map[rid]
+    except Exception as e:
+        print(f"Rewrite generation failed: {e}")
