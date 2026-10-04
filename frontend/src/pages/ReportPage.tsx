@@ -95,7 +95,7 @@ export default function ReportPage() {
 
   return (
     <div className="p-8">
-      <Link to="/submissions" className="flex items-center gap-2 text-gray-500 hover:text-gray-900 mb-6 text-sm">
+      <Link to="/submissions" className="flex items-center gap-2 text-gray-500 hover:text-gray-900 mb-6 text-sm print:hidden">
         <ArrowLeft className="h-4 w-4" /> Back to Submissions
       </Link>
 
@@ -109,7 +109,7 @@ export default function ReportPage() {
       )}
 
       {/* Tab nav */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
+      <div className="flex gap-1 border-b border-gray-200 mb-6 print:hidden">
         {tabs.map(t => (
           <button
             key={t.key}
