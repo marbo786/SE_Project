@@ -1,0 +1,169 @@
+"""
+Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
+"""
+import json
+import os
+from typing import List, Dict, Optional
+from sqlalchemy.orm import Session
+
+from ..models.submission import Submission
+from ..models.artifact import Artifact
+from ..models.finding import Finding
+from ..models.traceability import TraceLink
+from ..models.score import QualityScore
+
+from .srs.parser import parse_srs
+from .uml.parser import parse_plantuml
+from .checks.srs_checks import run_all_srs_checks
+from .checks.uml_checks import run_all_uml_checks
+from .checks.llm_checks import check_testability, check_conflicts
+from .checks.traceability_checks import build_trace_links, check_traceability
+from .scoring import compute_scores
+
+
+async def run_analysis_pipeline(submission_id: int, db: Session) -> None:
+    """
+    Full analysis pipeline for a submission.
+    Updates submission status; saves findings, trace links, and score.
+    """
+    submission = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not submission:
+        return
+
+    try:
+        submission.status = "analyzing"
+        db.commit()
+
+        artifacts = db.query(Artifact).filter(Artifact.submission_id == submission_id).all()
+
+        # Group artifacts by type
+        srs_artifact = next((a for a in artifacts if a.artifact_type == 'srs'), None)
+        usecase_artifact = next((a for a in artifacts if a.artifact_type == 'uml_usecase'), None)
+        class_artifact = next((a for a in artifacts if a.artifact_type == 'uml_class'), None)
+        sequence_artifact = next((a for a in artifacts if a.artifact_type == 'uml_sequence'), None)
+
+        # ── Parse SRS ──────────────────────────────────────────────────────
+        srs_parsed = {"sections": [], "requirements": []}
+        if srs_artifact:
+            srs_parsed = parse_srs(srs_artifact.file_path, srs_artifact.file_format)
+            srs_artifact.extracted_content = json.dumps(srs_parsed)
+            db.commit()
+
+        requirements = srs_parsed.get('requirements', [])
+
+        # ── Parse UML artifacts ────────────────────────────────────────────
+        usecase_model = None
+        class_model = None
+        sequence_model = None
+
+        if usecase_artifact:
+            content = _read_artifact_content(usecase_artifact)
+            usecase_model = parse_plantuml(content, 'usecase')
+            usecase_artifact.extracted_content = json.dumps(usecase_model)
+            db.commit()
+
+        if class_artifact:
+            content = _read_artifact_content(class_artifact)
+            class_model = parse_plantuml(content, 'class')
+            class_artifact.extracted_content = json.dumps(class_model)
+            db.commit()
+
+        if sequence_artifact:
+            content = _read_artifact_content(sequence_artifact)
+            sequence_model = parse_plantuml(content, 'sequence')
+            sequence_artifact.extracted_content = json.dumps(sequence_model)
+            db.commit()
+
+        # ── Deterministic checks ──────────────────────────────────────────
+        all_findings: List[Dict] = []
+        all_findings += run_all_srs_checks(srs_parsed)
+
+        if usecase_model:
+            all_findings += run_all_uml_checks(usecase_model)
+        if class_model:
+            all_findings += run_all_uml_checks(class_model)
+        if sequence_model:
+            all_findings += run_all_uml_checks(sequence_model, class_model)
+
+        # ── LLM checks ────────────────────────────────────────────────────
+        if requirements:
+            llm_findings = await check_testability(requirements, db=db, submission_id=submission_id)
+            all_findings += llm_findings
+            conflict_findings = await check_conflicts(requirements, db=db, submission_id=submission_id)
+            all_findings += conflict_findings
+
+        # ── Traceability ──────────────────────────────────────────────────
+        trace_link_dicts: List[Dict] = []
+        trace_findings: List[Dict] = []
+
+        if usecase_model:
+            trace_link_dicts = build_trace_links(requirements, usecase_model, sequence_model)
+            existing_links = [
+                {
+                    'source_type': tl['source_type'],
+                    'source_id': tl['source_id'],
+                    'target_type': tl['target_type'],
+                    'target_id': tl['target_id']
+                }
+                for tl in trace_link_dicts
+            ]
+            trace_findings = check_traceability(requirements, usecase_model, sequence_model, existing_links)
+            all_findings += trace_findings
+
+        # ── Save findings ─────────────────────────────────────────────────
+        for fd in all_findings:
+            finding = Finding(
+                submission_id=submission_id,
+                rule_id=fd['rule_id'],
+                severity=fd['severity'],
+                quoted_text=fd.get('quoted_text'),
+                explanation=fd['explanation'],
+                artifact_type=fd.get('artifact_type'),
+                requirement_id=fd.get('requirement_id'),
+                finding_type=fd.get('finding_type', 'deterministic'),
+                rewrite_suggestion=fd.get('rewrite_suggestion')
+            )
+            db.add(finding)
+
+        # ── Save trace links ──────────────────────────────────────────────
+        for tl in trace_link_dicts:
+            link = TraceLink(
+                submission_id=submission_id,
+                source_type=tl['source_type'],
+                source_id=tl['source_id'],
+                target_type=tl['target_type'],
+                target_id=tl['target_id'],
+                status='suggested'
+            )
+            db.add(link)
+
+        db.commit()
+
+        # ── Compute and save score ────────────────────────────────────────
+        scores = compute_scores(all_findings, trace_link_dicts)
+        existing_score = db.query(QualityScore).filter(QualityScore.submission_id == submission_id).first()
+        if existing_score:
+            existing_score.requirements_score = scores['requirements_score']
+            existing_score.uml_score = scores['uml_score']
+            existing_score.traceability_score = scores['traceability_score']
+            existing_score.overall_score = scores['overall_score']
+        else:
+            score_obj = QualityScore(
+                submission_id=submission_id,
+                **scores
+            )
+            db.add(score_obj)
+
+        submission.status = "done"
+        db.commit()
+
+    except Exception as e:
+        submission.status = "error"
+        db.commit()
+        raise e
+
+
+def _read_artifact_content(artifact: Artifact) -> str:
+    """Read raw text content from an artifact file."""
+    with open(artifact.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        return f.read()

@@ -1,0 +1,70 @@
+rules:
+  ambiguous_words:
+    severity: major
+    lexicon:
+      - fast
+      - user-friendly
+      - easy
+      - etc.
+      - as appropriate
+      - adequate
+      - good
+      - quick
+      - efficient
+      - flexible
+      - robust
+      - scalable
+      - seamless
+  multiple_shall:
+    severity: major
+  missing_section:
+    severity: minor
+  no_identifier:
+    severity: major
+  duplicate_identifier:
+    severity: critical
+  nfr_no_metric:
+    severity: major
+  uml_actor_disconnected:
+    severity: major
+  uml_usecase_disconnected:
+    severity: major
+  uml_class_empty:
+    severity: minor
+  uml_assoc_no_multiplicity:
+    severity: minor
+  uml_undefined_class:
+    severity: major
+  uml_op_not_in_class:
+    severity: major
+  uml_duplicate_name:
+    severity: minor
+  trace_req_no_usecase:
+    severity: major
+  trace_usecase_no_req:
+    severity: minor
+  trace_seq_no_usecase:
+    severity: major
+  trace_usecase_no_seq:
+    severity: minor
+  llm_not_testable:
+    severity: major
+  llm_conflict:
+    severity: critical
+
+rubric:
+  requirements: 40
+  uml: 30
+  traceability: 30
+
+expected_sections:
+  - "1. Introduction"
+  - "1.1"
+  - "1.2"
+  - "1.3"
+  - "2. Overall description"
+  - "3. Use cases"
+  - "4. Functional requirements"
+  - "5. Non-functional requirements"
+  - "6. External interface requirements"
+  - "7. Data requirements"
