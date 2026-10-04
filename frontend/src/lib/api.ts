@@ -51,8 +51,8 @@ export const submissionsApi = {
   list: (assignmentId?: number) =>
     api.get('/submissions', { params: assignmentId ? { assignment_id: assignmentId } : {} }),
   get: (id: number) => api.get(`/submissions/${id}`),
-  create: (formData: FormData) =>
-    api.post('/submissions', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  create: (data: { assignment_id: number, team_name: string, member_names: string[] }) =>
+    api.post('/submissions', data),
   uploadSRS: (id: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)

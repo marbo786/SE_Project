@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List
 
 from ..core.database import get_db
@@ -27,7 +27,7 @@ def list_findings(
     if current_user.role == "student" and submission.student_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    query = db.query(Finding).filter(Finding.submission_id == submission_id)
+    query = db.query(Finding).options(joinedload(Finding.instructor_decision)).filter(Finding.submission_id == submission_id)
     if severity:
         query = query.filter(Finding.severity == severity)
     if finding_type:

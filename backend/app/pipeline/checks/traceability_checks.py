@@ -55,6 +55,21 @@ def build_trace_links(
                     'status': 'suggested'
                 })
 
+    # Match use cases to sequence diagrams (FR-703 fix)
+    for uc in use_cases:
+        uc_name = uc['name'].lower()
+        uc_words = set(uc_name.split())
+        for msg in seq_messages:
+            op = msg.get('operation', '').lower()
+            if op and (op in uc_name or len(set(op.split()) & uc_words) >= 1):
+                links.append({
+                    'source_type': 'usecase',
+                    'source_id': uc['name'],
+                    'target_type': 'sequence',
+                    'target_id': msg.get('message', op),
+                    'status': 'suggested'
+                })
+
     return links
 
 

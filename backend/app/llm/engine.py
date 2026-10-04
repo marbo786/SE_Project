@@ -13,8 +13,10 @@ def get_provider() -> BaseLLMProvider:
         return GroqProvider()
     return MockLLMProvider()
 
-# Simple in-memory cache
-_cache: dict[str, str] = {}
+from collections import OrderedDict
+# Simple in-memory bounded cache
+_cache: OrderedDict[str, str] = OrderedDict()
+MAX_CACHE_SIZE = 500
 
 def _make_cache_key(system_prompt: str, user_prompt: str) -> str:
     combined = system_prompt + "|||" + user_prompt
@@ -53,6 +55,8 @@ async def call_llm(
         try:
             response: LLMResponse = await provider.complete(system_prompt, user_prompt)
             _cache[cache_key] = response.content
+            if len(_cache) > MAX_CACHE_SIZE:
+                _cache.popitem(last=False)
             if db:
                 log = LLMLog(
                     submission_id=submission_id,

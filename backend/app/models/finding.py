@@ -19,7 +19,7 @@ class Finding(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     submission = relationship("Submission", back_populates="findings")
-    instructor_decision = relationship("InstructorDecision", back_populates="finding", uselist=False)
+    instructor_decision = relationship("InstructorDecision", back_populates="finding", uselist=False, cascade="all, delete-orphan")
 
 
 class InstructorDecision(Base):

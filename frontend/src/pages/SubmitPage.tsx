@@ -31,11 +31,11 @@ export default function SubmitPage() {
     setLoading(true)
     setError('')
     try {
-      const fd = new FormData()
-      fd.append('assignment_id', assignmentId!)
-      fd.append('team_name', teamName)
-      fd.append('member_names', JSON.stringify(members.filter(Boolean)))
-      const res = await submissionsApi.create(fd)
+      const res = await submissionsApi.create({
+        assignment_id: parseInt(assignmentId!),
+        team_name: teamName,
+        member_names: members.filter(Boolean)
+      } as any)
       setSubmissionId(res.data.id)
       setStep('upload')
     } catch (err: any) {
@@ -160,8 +160,8 @@ export default function SubmitPage() {
                     <SelectItem value="usecase">Use Case</SelectItem>
                     <SelectItem value="class">Class</SelectItem>
                     <SelectItem value="sequence">Sequence</SelectItem>
-                    <SelectItem value="activity">Activity</SelectItem>
-                    <SelectItem value="state">State</SelectItem>
+                    
+                    
                   </SelectContent>
                 </Select>
                 <Input type="file" accept=".puml,.plantuml,.txt"

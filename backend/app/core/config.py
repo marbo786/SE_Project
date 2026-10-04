@@ -4,7 +4,7 @@ import yaml
 import os
 
 class Settings(BaseSettings):
-    SECRET_KEY: str = "changeme"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     GROQ_API_KEY: str = ""
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./srs_reviewer.db"
 
     class Config:
-        env_file = "backend/.env"
+        env_file = os.path.join(os.path.dirname(__file__), "../../.env")
         env_file_encoding = "utf-8"
 
 @lru_cache()

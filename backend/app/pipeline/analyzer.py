@@ -13,6 +13,7 @@ from ..models.artifact import Artifact
 from ..models.finding import Finding
 from ..models.traceability import TraceLink
 from ..models.score import QualityScore
+from ..models.llm_log import LLMLog
 
 from .srs.parser import parse_srs
 from .uml.parser import parse_plantuml
@@ -36,6 +37,13 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
             return
 
         submission.status = "analyzing"
+        db.commit()
+
+        # Delete existing analysis data to prevent duplication on re-analysis
+        db.query(Finding).filter(Finding.submission_id == submission_id).delete()
+        db.query(TraceLink).filter(TraceLink.submission_id == submission_id).delete()
+        db.query(LLMLog).filter(LLMLog.submission_id == submission_id).delete()
+        db.query(QualityScore).filter(QualityScore.submission_id == submission_id).delete()
         db.commit()
 
         artifacts = db.query(Artifact).filter(Artifact.submission_id == submission_id).all()

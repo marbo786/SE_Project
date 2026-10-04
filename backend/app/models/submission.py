@@ -17,7 +17,8 @@ class Submission(Base):
 
     assignment = relationship("Assignment", back_populates="submissions")
     student = relationship("User")
-    artifacts = relationship("Artifact", back_populates="submission")
-    findings = relationship("Finding", back_populates="submission")
-    trace_links = relationship("TraceLink", back_populates="submission")
-    llm_logs = relationship("LLMLog", back_populates="submission")
+    artifacts = relationship("Artifact", back_populates="submission", cascade="all, delete-orphan")
+    findings = relationship("Finding", back_populates="submission", cascade="all, delete-orphan")
+    trace_links = relationship("TraceLink", back_populates="submission", cascade="all, delete-orphan")
+    llm_logs = relationship("LLMLog", back_populates="submission", cascade="all, delete-orphan")
+    quality_score = relationship("QualityScore", back_populates="submission", uselist=False, cascade="all, delete-orphan")

@@ -47,73 +47,42 @@ def _detect_format(filename: str) -> str:
     return 'plantuml'
 
 
+from ..schemas.submission import SubmissionCreate, SubmissionOut
+
 @router.post("", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED, include_in_schema=False)
-async def create_submission(
-    background_tasks: BackgroundTasks,
-    assignment_id: int = Form(...),
-    team_name: str = Form(...),
-    member_names: str = Form(...),  # JSON-encoded list
-    srs_file: Optional[UploadFile] = File(None),
-    usecase_file: Optional[UploadFile] = File(None),
-    class_file: Optional[UploadFile] = File(None),
-    sequence_file: Optional[UploadFile] = File(None),
+def create_submission(
+    data: SubmissionCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_student)
 ):
     """
     Create a new submission.
-    Files can be uploaded here or separately via /upload-srs and /upload-uml endpoints.
+    Files must be uploaded separately via /upload-srs and /upload-uml endpoints.
     """
-    assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    assignment = db.query(Assignment).filter(Assignment.id == data.assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
     existing_count = db.query(Submission).filter(
-        Submission.assignment_id == assignment_id,
+        Submission.assignment_id == data.assignment_id,
         Submission.student_id == current_user.id
     ).count()
 
     submission = Submission(
-        assignment_id=assignment_id,
+        assignment_id=data.assignment_id,
         student_id=current_user.id,
-        team_name=team_name,
-        member_names=member_names,
+        team_name=data.team_name,
+        member_names=json.dumps(data.member_names),
         version=existing_count + 1,
         status="pending"
     )
     db.add(submission)
     db.commit()
     db.refresh(submission)
-
-    # Save uploaded files if provided inline
-    file_map = [
-        (srs_file, 'srs'),
-        (usecase_file, 'uml_usecase'),
-        (class_file, 'uml_class'),
-        (sequence_file, 'uml_sequence'),
-    ]
-    has_srs = False
-    for upload, artifact_type in file_map:
-        if upload and upload.filename:
-            file_path, orig_name = await _save_file(upload, str(submission.id))
-            artifact = Artifact(
-                submission_id=submission.id,
-                artifact_type=artifact_type,
-                file_format=_detect_format(orig_name),
-                file_path=file_path,
-                original_filename=orig_name
-            )
-            db.add(artifact)
-            if artifact_type == 'srs':
-                has_srs = True
-    db.commit()
-
-    # Auto-trigger analysis if SRS was included
-    if has_srs:
-        background_tasks.add_task(run_analysis_pipeline, submission.id)
-
     return submission
+
+
 
 
 @router.post("/{submission_id}/upload-srs")
@@ -226,6 +195,9 @@ def analyze_submission(
     ).first()
     if not has_srs:
         raise HTTPException(status_code=400, detail="Upload an SRS file before triggering analysis")
+        
+    if sub.status in ("analyzing", "done"):
+        raise HTTPException(status_code=400, detail=f"Submission is already {sub.status}")
 
     sub.status = "analyzing"
     db.commit()
@@ -302,6 +274,8 @@ def reanalyze_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
+    if submission.status == "analyzing":
+        raise HTTPException(status_code=400, detail="Submission is already analyzing")
     submission.status = "pending"
     db.commit()
     background_tasks.add_task(run_analysis_pipeline, submission_id)

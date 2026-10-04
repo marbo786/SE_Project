@@ -89,9 +89,8 @@ async def check_conflicts(requirements: List[Dict], db=None, submission_id: int 
     severity = config.get('rules', {}).get('llm_conflict', {}).get('severity', 'critical')
     findings = []
 
-    # Limit to avoid extremely long prompts (send max 30 requirements)
     reqs_for_llm = []
-    for req in requirements[:30]:
+    for req in requirements:
         reqs_for_llm.append({
             'id': req.get('id', 'UNKNOWN'),
             'text': redact_text(req.get('text', ''))

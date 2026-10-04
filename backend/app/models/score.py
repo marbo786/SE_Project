@@ -14,4 +14,4 @@ class QualityScore(Base):
     overall_score = Column(Float, default=0.0)
     computed_at = Column(DateTime, default=datetime.utcnow)
 
-    submission = relationship("Submission")
+    submission = relationship("Submission", back_populates="quality_score")

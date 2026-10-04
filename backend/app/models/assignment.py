@@ -13,5 +13,5 @@ class Assignment(Base):
     instructor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    submissions = relationship("Submission", back_populates="assignment")
+    submissions = relationship("Submission", back_populates="assignment", cascade="all, delete-orphan")
     instructor = relationship("User")
