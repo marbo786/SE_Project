@@ -8,15 +8,17 @@ from typing import Dict, List, Optional
 def detect_diagram_type(plantuml_text: str) -> str:
     """Detect diagram type from PlantUML source."""
     text_lower = plantuml_text.lower()
-    if 'usecase' in text_lower or ':actor:' in text_lower or '(use case' in text_lower.replace('\n', ' '):
+    # Check for use case characteristics
+    if 'actor ' in text_lower or ':actor:' in text_lower or 'usecase' in text_lower or 'left to right direction' in text_lower:
         return 'usecase'
+    # Check for class diagram characteristics
+    if 'class ' in text_lower or 'interface ' in text_lower:
+        return 'class'
+    # Check for sequence diagram characteristics
     if 'participant' in text_lower or 'activate' in text_lower or 'deactivate' in text_lower:
         return 'sequence'
     if '-->' in plantuml_text or '->' in plantuml_text:
-        if 'class ' not in text_lower:
-            return 'sequence'
-    if 'class ' in text_lower or '{' in plantuml_text:
-        return 'class'
+        return 'sequence'
     return 'unknown'
 
 
@@ -26,28 +28,47 @@ def parse_usecase_diagram(text: str) -> Dict:
     use_cases = []
     relationships = []
 
-    # Actors: lines like 'actor "Name" as X' or ':Name:'
-    for m in re.finditer(r'actor\s+"?([^"\n]+?)"?(?:\s+as\s+(\w+))?$', text, re.MULTILINE | re.IGNORECASE):
-        name = m.group(1).strip()
-        alias = m.group(2) or name
-        actors.append({"name": name, "alias": alias})
-    for m in re.finditer(r':([^:]+):', text):
+    # Actors: lines like 'actor "Name" as X' or 'actor Name' or ':Name:'
+    for m in re.finditer(r'actor\s+"?([^"\n\r]+?)"?(?:\s+as\s+(\w+))?$', text, re.MULTILINE | re.IGNORECASE):
+        raw_name = m.group(1).strip()
+        alias = m.group(2) or raw_name
+        if not any(a['name'] == raw_name for a in actors):
+            actors.append({"name": raw_name, "alias": alias})
+
+    for m in re.finditer(r':([^:\n\r]+):', text):
         name = m.group(1).strip()
         if not any(a['name'] == name for a in actors):
             actors.append({"name": name, "alias": name})
 
-    # Use cases: (Use Case Name)
-    for m in re.finditer(r'\(([^)]+)\)', text):
+    # Use cases: (Use Case Name) or usecase "Name" as X or usecase Name
+    for m in re.finditer(r'\(([^)\n\r]+)\)', text):
         name = m.group(1).strip()
-        use_cases.append({"name": name})
+        if not any(uc['name'] == name for uc in use_cases):
+            use_cases.append({"name": name})
 
-    # Relationships: arrows between elements
-    for m in re.finditer(r'(\w+|"[^"]+")\s*(-->|--|-\.->|\.\.|<--)\s*(\w+|"[^"]+")(?:\s*:\s*(.+))?', text):
-        source = m.group(1).strip('"')
+    for m in re.finditer(r'usecase\s+"?([^"\n\r]+?)"?(?:\s+as\s+(\w+))?$', text, re.MULTILINE | re.IGNORECASE):
+        name = m.group(1).strip()
+        if not any(uc['name'] == name for uc in use_cases):
+            use_cases.append({"name": name})
+
+    # Relationships: arrows between elements, e.g. Actor --> (Use Case) or Actor -> UC
+    # Match element identifier or ("...") or (...)
+    elem_pattern = r'(\([^)]+\)|"[^"]+"|[a-zA-Z0-9_]+)'
+    arrow_pattern = r'(-->|--|-\.->|\.\.|<--|->|<--)'
+    rel_regex = re.compile(rf'{elem_pattern}\s*{arrow_pattern}\s*{elem_pattern}(?:\s*:\s*(.+))?', re.MULTILINE)
+
+    for m in rel_regex.finditer(text):
+        raw_source = m.group(1).strip().strip('"').strip('()').strip()
         rel = m.group(2)
-        target = m.group(3).strip('"')
-        label = m.group(4) or ''
-        relationships.append({"source": source, "relation": rel, "target": target, "label": label})
+        raw_target = m.group(3).strip().strip('"').strip('()').strip()
+        label = m.group(4).strip() if m.group(4) else ''
+
+        relationships.append({
+            "source": raw_source,
+            "relation": rel,
+            "target": raw_target,
+            "label": label
+        })
 
     return {"type": "usecase", "actors": actors, "use_cases": use_cases, "relationships": relationships}
 
