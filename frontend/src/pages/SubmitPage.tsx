@@ -142,7 +142,7 @@ export default function SubmitPage() {
               <Label>SRS Document (PDF) *</Label>
               <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center">
                 <Upload className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                <Input type="file" accept=".pdf"
+                <Input type="file" accept=".pdf,.docx"
                   onChange={e => setSrsFile(e.target.files?.[0] || null)}
                   className="max-w-xs mx-auto" />
                 {srsFile && <p className="text-sm text-green-600 mt-2">✓ {srsFile.name}</p>}
@@ -164,7 +164,7 @@ export default function SubmitPage() {
                     <SelectItem value="state">State</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input type="file" accept=".png,.jpg,.jpeg,.pdf"
+                <Input type="file" accept=".puml,.plantuml,.txt"
                   onChange={e => setUmlFile(e.target.files?.[0] || null)}
                   className="flex-1" />
                 <Button type="button" variant="outline" onClick={addUmlFile} disabled={!umlFile}>

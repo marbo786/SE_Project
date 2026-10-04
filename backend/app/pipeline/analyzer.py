@@ -1,11 +1,13 @@
 """
 Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
+Runs as a background task with its own database session.
 """
 import json
-import os
-from typing import List, Dict, Optional
+import asyncio
+from typing import List, Dict
 from sqlalchemy.orm import Session
 
+from ..core.database import SessionLocal
 from ..models.submission import Submission
 from ..models.artifact import Artifact
 from ..models.finding import Finding
@@ -21,16 +23,18 @@ from .checks.traceability_checks import build_trace_links, check_traceability
 from .scoring import compute_scores
 
 
-async def run_analysis_pipeline(submission_id: int, db: Session) -> None:
+def run_analysis_pipeline(submission_id: int, _db=None) -> None:
     """
     Full analysis pipeline for a submission.
-    Updates submission status; saves findings, trace links, and score.
+    Creates its own DB session so it works correctly as a BackgroundTask.
+    The _db parameter is ignored (kept for backward compat with callers).
     """
-    submission = db.query(Submission).filter(Submission.id == submission_id).first()
-    if not submission:
-        return
-
+    db = SessionLocal()
     try:
+        submission = db.query(Submission).filter(Submission.id == submission_id).first()
+        if not submission:
+            return
+
         submission.status = "analyzing"
         db.commit()
 
@@ -85,16 +89,25 @@ async def run_analysis_pipeline(submission_id: int, db: Session) -> None:
         if sequence_model:
             all_findings += run_all_uml_checks(sequence_model, class_model)
 
-        # ── LLM checks ────────────────────────────────────────────────────
+        # ── LLM checks (run async checks from sync context) ──────────────
         if requirements:
-            llm_findings = await check_testability(requirements, db=db, submission_id=submission_id)
-            all_findings += llm_findings
-            conflict_findings = await check_conflicts(requirements, db=db, submission_id=submission_id)
-            all_findings += conflict_findings
+            loop = asyncio.new_event_loop()
+            try:
+                llm_findings = loop.run_until_complete(
+                    check_testability(requirements, db=db, submission_id=submission_id)
+                )
+                all_findings += llm_findings
+                conflict_findings = loop.run_until_complete(
+                    check_conflicts(requirements, db=db, submission_id=submission_id)
+                )
+                all_findings += conflict_findings
+            except Exception:
+                pass  # LLM failure is non-fatal
+            finally:
+                loop.close()
 
         # ── Traceability ──────────────────────────────────────────────────
         trace_link_dicts: List[Dict] = []
-        trace_findings: List[Dict] = []
 
         if usecase_model:
             trace_link_dicts = build_trace_links(requirements, usecase_model, sequence_model)
@@ -158,9 +171,16 @@ async def run_analysis_pipeline(submission_id: int, db: Session) -> None:
         db.commit()
 
     except Exception as e:
-        submission.status = "error"
-        db.commit()
+        try:
+            submission = db.query(Submission).filter(Submission.id == submission_id).first()
+            if submission:
+                submission.status = "error"
+                db.commit()
+        except Exception:
+            pass
         raise e
+    finally:
+        db.close()
 
 
 def _read_artifact_content(artifact: Artifact) -> str:

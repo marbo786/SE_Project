@@ -71,17 +71,23 @@ export const submissionsApi = {
   analyze: (id: number) => api.post(`/submissions/${id}/analyze`),
 }
 
-// Reports
+// Reports (mapped to actual backend routes)
 export const reportsApi = {
-  findings: (submissionId: number) => api.get(`/reports/${submissionId}/findings`),
-  scores: (submissionId: number) => api.get(`/reports/${submissionId}/scores`),
-  traceability: (submissionId: number) => api.get(`/reports/${submissionId}/traceability`),
+  findings: (submissionId: number) =>
+    api.get(`/findings/submission/${submissionId}`),
+  scores: (submissionId: number) =>
+    api.get(`/submissions/${submissionId}/score`),
+  traceability: (submissionId: number) =>
+    api.get(`/traceability/submission/${submissionId}`),
   exportCSV: (submissionId: number) =>
-    api.get(`/reports/${submissionId}/traceability/csv`, { responseType: 'blob' }),
+    api.get(`/traceability/submission/${submissionId}`, { 
+      params: { format: 'csv' },
+      responseType: 'blob' 
+    }),
   makeDecision: (submissionId: number, findingId: number, data: { status: string; comment?: string }) =>
-    api.post(`/reports/${submissionId}/findings/${findingId}/decision`, data),
+    api.post(`/findings/${findingId}/decision`, data),
   updateTraceLink: (submissionId: number, linkId: number, status: string) =>
-    api.put(`/reports/${submissionId}/trace-links/${linkId}`, null, { params: { status } }),
+    api.patch(`/traceability/${linkId}`, { status }),
   createTraceLink: (submissionId: number, data: { source_type: string; source_id: string; target_type: string; target_id: string }) =>
-    api.post(`/reports/${submissionId}/trace-links`, null, { params: data }),
+    api.post(`/traceability/submission/${submissionId}`, data),
 }

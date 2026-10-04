@@ -1,7 +1,6 @@
 import json
 import os
 import uuid
-import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -25,7 +24,7 @@ def _ensure_upload_dir():
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-async def _save_file(upload_file: UploadFile, subdir: str) -> tuple[str, str]:
+async def _save_file(upload_file: UploadFile, subdir: str) -> tuple:
     """Save an uploaded file; return (file_path, original_filename)."""
     _ensure_upload_dir()
     target_dir = os.path.join(UPLOAD_DIR, subdir)
@@ -48,7 +47,8 @@ def _detect_format(filename: str) -> str:
     return 'plantuml'
 
 
-@router.post("/", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_submission(
     background_tasks: BackgroundTasks,
     assignment_id: int = Form(...),
@@ -62,14 +62,13 @@ async def create_submission(
     current_user: User = Depends(require_student)
 ):
     """
-    Create a new submission with optional file uploads.
-    Triggers analysis pipeline as a background task.
+    Create a new submission.
+    Files can be uploaded here or separately via /upload-srs and /upload-uml endpoints.
     """
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
-    # Count existing submissions by this student for versioning
     existing_count = db.query(Submission).filter(
         Submission.assignment_id == assignment_id,
         Submission.student_id == current_user.id
@@ -87,13 +86,14 @@ async def create_submission(
     db.commit()
     db.refresh(submission)
 
-    # Save uploaded files and create artifact records
+    # Save uploaded files if provided inline
     file_map = [
         (srs_file, 'srs'),
         (usecase_file, 'uml_usecase'),
         (class_file, 'uml_class'),
         (sequence_file, 'uml_sequence'),
     ]
+    has_srs = False
     for upload, artifact_type in file_map:
         if upload and upload.filename:
             file_path, orig_name = await _save_file(upload, str(submission.id))
@@ -105,21 +105,143 @@ async def create_submission(
                 original_filename=orig_name
             )
             db.add(artifact)
+            if artifact_type == 'srs':
+                has_srs = True
     db.commit()
 
-    # Kick off background analysis
-    background_tasks.add_task(run_analysis_pipeline, submission.id, db)
+    # Auto-trigger analysis if SRS was included
+    if has_srs:
+        background_tasks.add_task(run_analysis_pipeline, submission.id)
 
     return submission
 
 
-@router.get("/", response_model=List[SubmissionOut])
+@router.post("/{submission_id}/upload-srs")
+async def upload_srs(
+    submission_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload an SRS document (DOCX or PDF) for an existing submission."""
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if current_user.role == "student" and sub.student_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    ext = os.path.splitext(file.filename)[-1].lower()
+    if ext not in {".docx", ".pdf"}:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Supported: .docx, .pdf")
+
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Max 20 MB.")
+
+    file_path, orig_name = await _save_file(file, str(submission_id))
+    # Actually re-read since we already consumed the file
+    save_path = os.path.join(UPLOAD_DIR, str(submission_id))
+    os.makedirs(save_path, exist_ok=True)
+    unique = f"{uuid.uuid4()}{ext}"
+    full_path = os.path.join(save_path, unique)
+    with open(full_path, 'wb') as f:
+        f.write(content)
+
+    # Remove old SRS artifact if exists
+    old = db.query(Artifact).filter(
+        Artifact.submission_id == submission_id,
+        Artifact.artifact_type == "srs"
+    ).first()
+    if old:
+        db.delete(old)
+
+    artifact = Artifact(
+        submission_id=submission_id,
+        artifact_type="srs",
+        file_format=ext.lstrip("."),
+        file_path=full_path,
+        original_filename=file.filename
+    )
+    db.add(artifact)
+    db.commit()
+    return {"message": "SRS uploaded", "artifact_id": artifact.id}
+
+
+@router.post("/{submission_id}/upload-uml")
+async def upload_uml(
+    submission_id: int,
+    file: UploadFile = File(...),
+    diagram_type: str = Form("usecase"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload a PlantUML diagram for an existing submission."""
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if current_user.role == "student" and sub.student_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if diagram_type not in ("usecase", "class", "sequence"):
+        raise HTTPException(status_code=400, detail="diagram_type must be: usecase, class, or sequence")
+
+    content = await file.read()
+    save_path = os.path.join(UPLOAD_DIR, str(submission_id))
+    os.makedirs(save_path, exist_ok=True)
+    ext = os.path.splitext(file.filename)[-1].lower()
+    unique = f"{uuid.uuid4()}{ext}"
+    full_path = os.path.join(save_path, unique)
+    with open(full_path, 'wb') as f:
+        f.write(content)
+
+    artifact = Artifact(
+        submission_id=submission_id,
+        artifact_type=f"uml_{diagram_type}",
+        file_format="plantuml",
+        file_path=full_path,
+        original_filename=file.filename
+    )
+    db.add(artifact)
+    db.commit()
+    return {"message": "UML diagram uploaded", "artifact_id": artifact.id}
+
+
+@router.post("/{submission_id}/analyze")
+def analyze_submission(
+    submission_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Trigger the analysis pipeline for a submission."""
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if current_user.role == "student" and sub.student_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    has_srs = db.query(Artifact).filter(
+        Artifact.submission_id == submission_id,
+        Artifact.artifact_type == "srs"
+    ).first()
+    if not has_srs:
+        raise HTTPException(status_code=400, detail="Upload an SRS file before triggering analysis")
+
+    sub.status = "analyzing"
+    db.commit()
+
+    background_tasks.add_task(run_analysis_pipeline, submission_id)
+    return {"message": "Analysis started", "submission_id": submission_id}
+
+
+@router.get("", response_model=List[SubmissionOut])
+@router.get("/", response_model=List[SubmissionOut], include_in_schema=False)
 def list_submissions(
     assignment_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List submissions. Students see their own; instructors see all for their assignments."""
+    """List submissions. Students see their own; instructors see all."""
     query = db.query(Submission)
     if assignment_id:
         query = query.filter(Submission.assignment_id == assignment_id)
@@ -138,7 +260,6 @@ def get_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
-    # Authorization: student can only see own submissions
     if current_user.role == "student" and submission.student_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     return submission
@@ -183,5 +304,5 @@ def reanalyze_submission(
         raise HTTPException(status_code=404, detail="Submission not found")
     submission.status = "pending"
     db.commit()
-    background_tasks.add_task(run_analysis_pipeline, submission_id, db)
+    background_tasks.add_task(run_analysis_pipeline, submission_id)
     return {"message": "Re-analysis started", "submission_id": submission_id}

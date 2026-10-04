@@ -8,8 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowLeft, Download, AlertTriangle, CheckCircle, XCircle, Link2 } from 'lucide-react'
-import { formatDate, scoreColor, severityColor, severityBadgeVariant } from '@/lib/utils'
+import { ArrowLeft, Download, CheckCircle, XCircle, Link2 } from 'lucide-react'
+import { formatDate, scoreColor, severityBadgeVariant } from '@/lib/utils'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, Tooltip
@@ -64,19 +64,22 @@ export default function ReportPage() {
   const submission = subRes?.data
   const scores = scoresRes?.data
   const findings = findingsRes?.data || []
-  const traceData = traceRes?.data || {}
+  const traceLinks = traceRes?.data || []
 
-  const radarData = scores ? [
-    { subject: 'Completeness', value: scores.completeness_score },
-    { subject: 'Consistency', value: scores.consistency_score },
-    { subject: 'Clarity', value: scores.clarity_score },
-    { subject: 'Testability', value: scores.testability_score },
-    { subject: 'Traceability', value: scores.traceability_score },
+  const radarData = scores && scores.overall_score !== undefined ? [
+    { subject: 'Requirements', value: (scores.requirements_score / 40) * 100 },
+    { subject: 'UML', value: (scores.uml_score / 30) * 100 },
+    { subject: 'Traceability', value: (scores.traceability_score / 30) * 100 },
   ] : []
 
-  const handleExportCSV = async () => {
-    const res = await reportsApi.exportCSV(submissionId)
-    const url = URL.createObjectURL(res.data)
+  const handleExportCSV = () => {
+    if (!traceLinks.length) return
+    const header = 'Source Type,Source ID,Target Type,Target ID,Status\n'
+    const rows = traceLinks.map((l: any) =>
+      `${l.source_type},${l.source_id},${l.target_type},${l.target_id},${l.status}`
+    ).join('\n')
+    const blob = new Blob([header + rows], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `traceability-${submissionId}.csv`
@@ -100,6 +103,8 @@ export default function ReportPage() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold">{submission.team_name}</h1>
           <p className="text-gray-500">Version {submission.version} • {formatDate(submission.created_at)}</p>
+          <Badge variant={submission.status === 'done' ? 'default' : submission.status === 'error' ? 'destructive' : 'outline'}
+            className="mt-2">{submission.status}</Badge>
         </div>
       )}
 
@@ -121,12 +126,10 @@ export default function ReportPage() {
       </div>
 
       {/* Scores Tab */}
-      {activeTab === 'scores' && scores && (
+      {activeTab === 'scores' && scores && scores.overall_score !== undefined && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Overall Score</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Overall Score</CardTitle></CardHeader>
             <CardContent>
               <div className="text-center py-4">
                 <p className={`text-6xl font-bold ${scoreColor(scores.overall_score)}`}>
@@ -136,21 +139,19 @@ export default function ReportPage() {
               </div>
               <div className="space-y-3 mt-4">
                 {[
-                  { label: 'Completeness', val: scores.completeness_score },
-                  { label: 'Consistency', val: scores.consistency_score },
-                  { label: 'Clarity', val: scores.clarity_score },
-                  { label: 'Testability', val: scores.testability_score },
-                  { label: 'Traceability', val: scores.traceability_score },
-                ].map(({ label, val }) => (
+                  { label: 'Requirements (40%)', val: scores.requirements_score, max: 40 },
+                  { label: 'UML (30%)', val: scores.uml_score, max: 30 },
+                  { label: 'Traceability (30%)', val: scores.traceability_score, max: 30 },
+                ].map(({ label, val, max }) => (
                   <div key={label}>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-600">{label}</span>
-                      <span className={`font-medium ${scoreColor(val)}`}>{val}</span>
+                      <span className={`font-medium ${scoreColor((val / max) * 100)}`}>{val}/{max}</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${val >= 80 ? 'bg-green-500' : val >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                        style={{ width: `${val}%` }}
+                        className={`h-full rounded-full ${(val / max) * 100 >= 80 ? 'bg-green-500' : (val / max) * 100 >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                        style={{ width: `${(val / max) * 100}%` }}
                       />
                     </div>
                   </div>
@@ -173,16 +174,11 @@ export default function ReportPage() {
               </ResponsiveContainer>
             </CardContent>
           </Card>
-
-          {scores.summary && (
-            <Card className="lg:col-span-2">
-              <CardHeader><CardTitle>AI Summary</CardTitle></CardHeader>
-              <CardContent>
-                <p className="text-gray-700 whitespace-pre-wrap">{scores.summary}</p>
-              </CardContent>
-            </Card>
-          )}
         </div>
+      )}
+
+      {activeTab === 'scores' && scores && scores.message && (
+        <Card><CardContent className="p-6 text-center text-gray-500">{scores.message} (Status: {scores.status})</CardContent></Card>
       )}
 
       {/* Findings Tab */}
@@ -192,7 +188,8 @@ export default function ReportPage() {
             <p className="text-gray-500 text-center py-8">No findings detected.</p>
           )}
           {findings.map((f: any) => {
-            const dec = decisionMap[f.id] || { status: f.instructor_decision || '', comment: f.instructor_comment || '' }
+            const existingDecision = f.instructor_decision
+            const dec = decisionMap[f.id] || { status: existingDecision?.status || '', comment: existingDecision?.comment || '' }
             return (
               <Card key={f.id} className={`border-l-4 ${
                 f.severity === 'critical' ? 'border-l-red-500' :
@@ -203,25 +200,29 @@ export default function ReportPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <Badge variant={severityBadgeVariant(f.severity)}>{f.severity}</Badge>
-                        <Badge variant="outline">{f.category}</Badge>
+                        <Badge variant="outline">{f.rule_id}</Badge>
+                        {f.artifact_type && <Badge variant="outline">{f.artifact_type}</Badge>}
                         {f.requirement_id && (
                           <span className="text-xs text-gray-400">REQ: {f.requirement_id}</span>
                         )}
                       </div>
-                      <p className="text-gray-900">{f.description}</p>
-                      {f.suggestion && (
-                        <p className="text-sm text-blue-600 mt-2 italic">💡 {f.suggestion}</p>
+                      <p className="text-gray-900">{f.explanation}</p>
+                      {f.quoted_text && (
+                        <p className="text-sm text-gray-500 mt-1 italic border-l-2 border-gray-200 pl-3">"{f.quoted_text}"</p>
+                      )}
+                      {f.rewrite_suggestion && (
+                        <p className="text-sm text-blue-600 mt-2 italic">💡 {f.rewrite_suggestion}</p>
                       )}
                     </div>
-                    {f.instructor_decision && (
+                    {existingDecision && (
                       <div className="shrink-0">
-                        {f.instructor_decision === 'accepted' && <CheckCircle className="h-5 w-5 text-green-500" />}
-                        {f.instructor_decision === 'rejected' && <XCircle className="h-5 w-5 text-red-500" />}
+                        {existingDecision.status === 'accepted' && <CheckCircle className="h-5 w-5 text-green-500" />}
+                        {existingDecision.status === 'rejected' && <XCircle className="h-5 w-5 text-red-500" />}
                       </div>
                     )}
                   </div>
 
-                  {isInstructor && !f.instructor_decision && (
+                  {isInstructor && !existingDecision && (
                     <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
                       <div className="flex gap-2">
                         <Select
@@ -234,7 +235,6 @@ export default function ReportPage() {
                           <SelectContent>
                             <SelectItem value="accepted">Accept</SelectItem>
                             <SelectItem value="rejected">Reject</SelectItem>
-                            <SelectItem value="deferred">Defer</SelectItem>
                           </SelectContent>
                         </Select>
                         <Button
@@ -258,10 +258,10 @@ export default function ReportPage() {
                     </div>
                   )}
 
-                  {f.instructor_decision && f.instructor_comment && (
+                  {existingDecision?.comment && (
                     <div className="mt-3 pt-3 border-t border-gray-100">
                       <p className="text-sm text-gray-500">
-                        <span className="font-medium capitalize">{f.instructor_decision}</span>: {f.instructor_comment}
+                        <span className="font-medium capitalize">{existingDecision.status}</span>: {existingDecision.comment}
                       </p>
                     </div>
                   )}
@@ -282,9 +282,9 @@ export default function ReportPage() {
             </Button>
           </div>
 
-          {traceData.links && traceData.links.length > 0 ? (
+          {traceLinks.length > 0 ? (
             <Card>
-              <CardHeader><CardTitle>Trace Links ({traceData.links.length})</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Trace Links ({traceLinks.length})</CardTitle></CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -298,7 +298,7 @@ export default function ReportPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {traceData.links.map((link: any) => (
+                      {traceLinks.map((link: any) => (
                         <tr key={link.id}>
                           <td className="py-3 pr-4">
                             <span className="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
@@ -315,21 +315,21 @@ export default function ReportPage() {
                           </td>
                           <td className="py-3 pr-4">
                             <Badge variant={
-                              link.status === 'verified' ? 'default' :
-                              link.status === 'invalid' ? 'destructive' : 'outline'
+                              link.status === 'confirmed' ? 'default' :
+                              link.status === 'rejected' ? 'destructive' : 'outline'
                             }>
-                              {link.status || 'pending'}
+                              {link.status}
                             </Badge>
                           </td>
                           {isInstructor && (
                             <td className="py-3">
                               <div className="flex gap-1">
                                 <Button size="sm" variant="ghost"
-                                  onClick={() => traceLinkMutation.mutate({ linkId: link.id, status: 'verified' })}>
+                                  onClick={() => traceLinkMutation.mutate({ linkId: link.id, status: 'confirmed' })}>
                                   ✓
                                 </Button>
                                 <Button size="sm" variant="ghost"
-                                  onClick={() => traceLinkMutation.mutate({ linkId: link.id, status: 'invalid' })}>
+                                  onClick={() => traceLinkMutation.mutate({ linkId: link.id, status: 'rejected' })}>
                                   ✗
                                 </Button>
                               </div>
