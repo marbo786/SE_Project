@@ -139,7 +139,7 @@ Return a JSON object with a key 'rewrites' containing a list. Each item has:
 Return ONLY valid JSON, no markdown, no extra text."""
 
 async def generate_rewrites(findings: List[Dict], db=None, submission_id: int = None) -> None:
-    "\"\"FR-407: Generate rewrite suggestions for defective requirements."\"\"
+    """FR-407: Generate rewrite suggestions for defective requirements."""""
     srs_findings = [f for f in findings if f.get('artifact_type') == 'srs' and f.get('requirement_id')]
     
     if not srs_findings:

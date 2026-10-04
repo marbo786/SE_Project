@@ -1,4 +1,4 @@
-import axios from 'axios'
+﻿import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
@@ -91,3 +91,4 @@ export const reportsApi = {
   createTraceLink: (submissionId: number, data: { source_type: string; source_id: string; target_type: string; target_id: string }) =>
     api.post(`/traceability/submission/${submissionId}`, data),
 }
+

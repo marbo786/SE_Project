@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
@@ -12,6 +12,7 @@ from ..models.submission import Submission
 from ..models.artifact import Artifact
 from ..models.assignment import Assignment
 from ..models.score import QualityScore
+from ..models.finding import Finding
 from ..schemas.submission import SubmissionOut
 from ..pipeline.analyzer import run_analysis_pipeline
 
@@ -280,3 +281,61 @@ def reanalyze_submission(
     db.commit()
     background_tasks.add_task(run_analysis_pipeline, submission_id)
     return {"message": "Re-analysis started", "submission_id": submission_id}
+
+@router.get("/{submission_id}/compare")
+def compare_versions(submission_id: int, with_version: int, db: Session = Depends(get_db)):
+    """Compare this submission with a previous version."""
+    current = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Submission not found")
+        
+    previous = db.query(Submission).filter(
+        Submission.assignment_id == current.assignment_id,
+        Submission.student_id == current.student_id,
+        Submission.version == with_version
+    ).first()
+    
+    if not previous:
+        raise HTTPException(status_code=404, detail="Previous version not found")
+        
+    curr_findings = db.query(Finding).filter(Finding.submission_id == current.id).all()
+    prev_findings = db.query(Finding).filter(Finding.submission_id == previous.id).all()
+    
+    def _make_key(f):
+        return (f.rule_id, f.artifact_type, f.requirement_id, f.quoted_text)
+        
+    curr_keys = { _make_key(f): f for f in curr_findings }
+    prev_keys = { _make_key(f): f for f in prev_findings }
+    
+    resolved = []
+    new_findings = []
+    persistent = []
+    
+    for k, f in prev_keys.items():
+        if k not in curr_keys:
+            resolved.append(f)
+        else:
+            persistent.append(f)
+            
+    for k, f in curr_keys.items():
+        if k not in prev_keys:
+            new_findings.append(f)
+            
+    # Quick serialization for the response
+    def _serialize(f):
+        return {
+            "id": f.id,
+            "rule_id": f.rule_id,
+            "severity": f.severity,
+            "explanation": f.explanation,
+            "requirement_id": f.requirement_id
+        }
+        
+    return {
+        "current_version": current.version,
+        "previous_version": previous.version,
+        "resolved_findings": [_serialize(f) for f in resolved],
+        "new_findings": [_serialize(f) for f in new_findings],
+        "persistent_findings": [_serialize(f) for f in persistent]
+    }
+

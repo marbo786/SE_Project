@@ -99,7 +99,8 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
 
         # ── LLM checks (run async checks from sync context) ──────────────
         if requirements:
-            loop = asyncio.new_event_loop()            try:
+            loop = asyncio.new_event_loop()
+            try:
                 llm_findings = loop.run_until_complete(
                     check_testability(requirements, db=db, submission_id=submission_id)
                 )
