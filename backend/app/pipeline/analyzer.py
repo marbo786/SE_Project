@@ -1,4 +1,4 @@
-"""
+﻿"""
 Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
 Runs as a background task with its own database session.
 """
@@ -33,7 +33,7 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
     db = SessionLocal()
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
-        if not submission:
+        if not project:
             return
 
         project.status = "analyzing"
@@ -98,6 +98,7 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
             all_findings += run_all_uml_checks(sequence_model, class_model)
 
         # ── LLM checks (run async checks from sync context) ──────────────
+        has_llm_error = False
         if requirements:
             loop = asyncio.new_event_loop()
             try:
@@ -113,8 +114,17 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
                 loop.run_until_complete(
                     generate_rewrites(all_findings, db=db, project_id=project_id)
                 )
-            except Exception:
-                pass  # LLM failure is non-fatal
+            except Exception as e:
+                has_llm_error = True
+                from .checks.llm_checks import LLMCheckError
+                import logging
+                logging.getLogger(__name__).warning(f"LLM failure: {e}")
+                all_findings.append({
+                    'rule_id': 'SYS-WARN', 'severity': 'minor', 'quoted_text': None,
+                    'explanation': f'Warning: LLM check failed: {e}',
+                    'requirement_id': None, 'finding_type': 'system', 'artifact_type': 'srs'
+                })
+        
             finally:
                 loop.close()
 
@@ -179,7 +189,7 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
             )
             db.add(score_obj)
 
-        project.status = "done"
+        project.status = "partial" if has_llm_error else "done"
         db.commit()
 
     except Exception as e:
@@ -199,3 +209,4 @@ def _read_artifact_content(artifact: Artifact) -> str:
     """Read raw text content from an artifact file."""
     with open(artifact.file_path, 'r', encoding='utf-8', errors='ignore') as f:
         return f.read()
+

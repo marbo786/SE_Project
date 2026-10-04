@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+﻿from pydantic_settings import BaseSettings
 from functools import lru_cache
 import yaml
 import os
@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     GROQ_API_KEY: str = ""
     LLM_PROVIDER: str = "mock"
+    LLM_MODEL: str = "llama-3.1-8b-instant"
     DATABASE_URL: str = "sqlite:///./srs_reviewer.db"
 
     class Config:
@@ -31,3 +32,4 @@ def get_yaml_config() -> dict:
     if _yaml_config is None:
         _yaml_config = load_yaml_config()
     return _yaml_config
+

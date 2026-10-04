@@ -1,4 +1,5 @@
-import hashlib
+﻿import hashlib
+import asyncio
 from typing import Optional
 from sqlalchemy.orm import Session
 from .base import BaseLLMProvider, LLMResponse
@@ -6,6 +7,7 @@ from .groq_provider import GroqProvider
 from .mock_provider import MockLLMProvider
 from ..core.config import get_settings
 from ..models.llm_log import LLMLog
+from collections import OrderedDict
 
 def get_provider() -> BaseLLMProvider:
     settings = get_settings()
@@ -13,8 +15,6 @@ def get_provider() -> BaseLLMProvider:
         return GroqProvider()
     return MockLLMProvider()
 
-from collections import OrderedDict
-# Simple in-memory bounded cache
 _cache: OrderedDict[str, str] = OrderedDict()
 MAX_CACHE_SIZE = 500
 
@@ -34,7 +34,6 @@ async def call_llm(
     cache_key = _make_cache_key(system_prompt, user_prompt)
 
     if cache_key in _cache:
-        # Log cache hit
         if db:
             log = LLMLog(
                 project_id=project_id,
@@ -51,6 +50,7 @@ async def call_llm(
         return _cache[cache_key]
 
     last_error = None
+    backoff = 1.0
     for attempt in range(retry):
         try:
             response: LLMResponse = await provider.complete(system_prompt, user_prompt)
@@ -73,5 +73,8 @@ async def call_llm(
             return response.content
         except Exception as e:
             last_error = e
+            if "Rate Limit" in str(e) or "429" in str(e):
+                await asyncio.sleep(backoff)
+                backoff *= 2
             continue
     raise RuntimeError(f"LLM call failed after {retry} attempts: {last_error}")

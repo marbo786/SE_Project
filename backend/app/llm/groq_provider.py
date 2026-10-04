@@ -1,4 +1,4 @@
-import time
+﻿import time
 import httpx
 from typing import Optional
 from .base import BaseLLMProvider, LLMResponse
@@ -9,7 +9,7 @@ class GroqProvider(BaseLLMProvider):
 
     def __init__(self):
         self.settings = get_settings()
-        self._model = "llama3-8b-8192"
+        self._model = self.settings.LLM_MODEL
 
     @property
     def provider_name(self) -> str:
@@ -32,11 +32,19 @@ class GroqProvider(BaseLLMProvider):
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.1,
-            "max_tokens": 2048
+            "max_tokens": 2048,
+            "response_format": {"type": "json_object"}
         }
         start = time.time()
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(self.BASE_URL, headers=headers, json=payload)
+        
+        if resp.status_code != 200:
+            if resp.status_code == 429:
+                class RateLimitError(Exception): pass
+                raise RateLimitError(f"Groq 429 Rate Limit: {resp.text}")
+            raise RuntimeError(f"Groq API error {resp.status_code}: {resp.text}")
+            
         latency = (time.time() - start) * 1000
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
