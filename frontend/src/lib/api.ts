@@ -1,94 +1,53 @@
-﻿import axios from 'axios'
+﻿/// <reference types="vite/client" />
+import axios from 'axios'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
 
 const api = axios.create({
-  baseURL: '/api',
-  headers: { 'Content-Type': 'application/json' }
+  baseURL: API_URL
 })
 
-// Attach JWT token to every request
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// Handle 401 - redirect to login
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  }
-)
-
-export default api
-
-// Auth
 export const authApi = {
-  register: (data: { name: string; email: string; password: string; role: string }) =>
-    api.post('/auth/register', data),
-  login: (data: { email: string; password: string }) =>
-    api.post('/auth/login', data),
-  me: () => api.get('/auth/me'),
+  login: (data: any) => api.post('/auth/login', data),
+  register: (data: any) => api.post('/auth/register', data),
+  getMe: () => api.get('/auth/me')
 }
 
-// Assignments
-export const assignmentsApi = {
-  list: () => api.get('/assignments'),
-  get: (id: number) => api.get(`/assignments/${id}`),
-  create: (data: { title: string; course_code: string; due_date?: string }) =>
-    api.post('/assignments', data),
-}
-
-// Submissions
-export const submissionsApi = {
-  list: (assignmentId?: number) =>
-    api.get('/submissions', { params: assignmentId ? { assignment_id: assignmentId } : {} }),
-  get: (id: number) => api.get(`/submissions/${id}`),
-  create: (data: { assignment_id: number, team_name: string, member_names: string[] }) =>
-    api.post('/submissions', data),
+export const projectsApi = {
+  list: () => api.get('/projects/'),
+  get: (id: number) => api.get(`/projects/${id}`),
+  create: (data: { name: string; description?: string }) => api.post('/projects/', data),
   uploadSRS: (id: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    return api.post(`/submissions/${id}/upload-srs`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    return api.post(`/projects/${id}/upload-srs`, fd)
   },
-  uploadUML: (id: number, diagramType: string, file: File) => {
+  uploadUML: (id: number, type: string, file: File) => {
     const fd = new FormData()
+    fd.append('uml_type', type)
     fd.append('file', file)
-    fd.append('diagram_type', diagramType)
-    return api.post(`/submissions/${id}/upload-uml`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    return api.post(`/projects/${id}/upload-uml`, fd)
   },
-  analyze: (id: number) => api.post(`/submissions/${id}/analyze`),
+  analyze: (id: number) => api.post(`/projects/${id}/analyze`),
+  reanalyze: (id: number) => api.post(`/projects/${id}/reanalyze`),
+  compare: (id: number, version: number) => api.get(`/projects/${id}/compare?with_version=${version}`)
 }
 
-// Reports (mapped to actual backend routes)
-export const reportsApi = {
-  findings: (submissionId: number) =>
-    api.get(`/findings/submission/${submissionId}`),
-  scores: (submissionId: number) =>
-    api.get(`/submissions/${submissionId}/score`),
-  traceability: (submissionId: number) =>
-    api.get(`/traceability/submission/${submissionId}`),
-  exportCSV: (submissionId: number) =>
-    api.get(`/traceability/submission/${submissionId}`, { 
-      params: { format: 'csv' },
-      responseType: 'blob' 
-    }),
-  makeDecision: (submissionId: number, findingId: number, data: { status: string; comment?: string }) =>
-    api.post(`/findings/${findingId}/decision`, data),
-  updateTraceLink: (submissionId: number, linkId: number, status: string) =>
-    api.patch(`/traceability/${linkId}`, { status }),
-  createTraceLink: (submissionId: number, data: { source_type: string; source_id: string; target_type: string; target_id: string }) =>
-    api.post(`/traceability/submission/${submissionId}`, data),
+export const findingsApi = {
+  getByProject: (id: number) => api.get(`/findings/project/${id}`)
+}
+
+export const traceabilityApi = {
+  getByProject: (id: number) => api.get(`/traceability/project/${id}`)
+}
+
+export const dashboardApi = {
+  getStats: () => api.get('/dashboard/stats')
 }
 
