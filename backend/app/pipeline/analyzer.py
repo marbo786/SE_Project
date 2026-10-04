@@ -1,4 +1,4 @@
-﻿"""
+"""
 Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
 Runs as a background task with its own database session.
 """
