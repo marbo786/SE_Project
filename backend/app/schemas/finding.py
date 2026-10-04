@@ -13,11 +13,6 @@ class FindingOut(BaseModel):
     finding_type: str
     rewrite_suggestion: Optional[str]
     created_at: datetime
-    instructor_decision: Optional[dict] = None
 
     class Config:
         from_attributes = True
-
-class DecisionCreate(BaseModel):
-    status: str  # accepted or rejected
-    comment: Optional[str] = None

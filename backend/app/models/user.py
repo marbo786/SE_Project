@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum
+from sqlalchemy import Column, Integer, String
 from ..core.database import Base
 
 class User(Base):
@@ -8,4 +8,3 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    role = Column(Enum("student", "instructor", name="user_role"), nullable=False, default="student")

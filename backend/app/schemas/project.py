@@ -2,16 +2,15 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
-class SubmissionCreate(BaseModel):
-    assignment_id: int
-    team_name: str
-    member_names: List[str]
+class ProjectCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
 
-class SubmissionOut(BaseModel):
+class ProjectOut(BaseModel):
     id: int
-    assignment_id: int
-    team_name: str
-    member_names: str
+    user_id: int
+    name: str
+    description: Optional[str]
     version: int
     status: str
     created_at: datetime

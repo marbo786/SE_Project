@@ -2,10 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.database import engine, Base
-from .routers import auth, assignments, submissions, findings, traceability, dashboard
+from .routers import auth, projects, findings, traceability, dashboard
 
 # Import all models so SQLAlchemy can create their tables
-from .models import user, assignment, submission, artifact, finding, traceability as trace_model, llm_log, score
+from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
@@ -27,8 +27,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
-app.include_router(assignments.router)
-app.include_router(submissions.router)
+
+app.include_router(projects.router)
 app.include_router(findings.router)
 app.include_router(traceability.router)
 app.include_router(dashboard.router)

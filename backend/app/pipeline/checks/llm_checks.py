@@ -29,7 +29,7 @@ Return a JSON object with a key 'conflicts' containing a list. Each item has:
 Return ONLY valid JSON, no markdown, no extra text."""
 
 
-async def check_testability(requirements: List[Dict], db=None, submission_id: int = None) -> List[Dict]:
+async def check_testability(requirements: List[Dict], db=None, project_id: int = None) -> List[Dict]:
     """FR-403: Use LLM to assess testability of each requirement."""
     config = get_yaml_config()
     severity = config.get('rules', {}).get('llm_not_testable', {}).get('severity', 'major')
@@ -48,7 +48,7 @@ async def check_testability(requirements: List[Dict], db=None, submission_id: in
     try:
         response_text = await call_llm(
             TESTABILITY_SYSTEM_PROMPT, user_prompt,
-            db=db, submission_id=submission_id
+            db=db, project_id=project_id
         )
         # Parse JSON from response
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -83,7 +83,7 @@ async def check_testability(requirements: List[Dict], db=None, submission_id: in
     return findings
 
 
-async def check_conflicts(requirements: List[Dict], db=None, submission_id: int = None) -> List[Dict]:
+async def check_conflicts(requirements: List[Dict], db=None, project_id: int = None) -> List[Dict]:
     """FR-404: Use LLM to detect conflicting requirements."""
     config = get_yaml_config()
     severity = config.get('rules', {}).get('llm_conflict', {}).get('severity', 'critical')
@@ -101,7 +101,7 @@ async def check_conflicts(requirements: List[Dict], db=None, submission_id: int 
     try:
         response_text = await call_llm(
             CONFLICT_SYSTEM_PROMPT, user_prompt,
-            db=db, submission_id=submission_id
+            db=db, project_id=project_id
         )
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
@@ -138,7 +138,7 @@ Return a JSON object with a key 'rewrites' containing a list. Each item has:
 - 'rewrite_suggestion': the rewritten text
 Return ONLY valid JSON, no markdown, no extra text."""
 
-async def generate_rewrites(findings: List[Dict], db=None, submission_id: int = None) -> None:
+async def generate_rewrites(findings: List[Dict], db=None, project_id: int = None) -> None:
     """FR-407: Generate rewrite suggestions for defective requirements."""""
     srs_findings = [f for f in findings if f.get('artifact_type') == 'srs' and f.get('requirement_id')]
     
@@ -162,7 +162,7 @@ async def generate_rewrites(findings: List[Dict], db=None, submission_id: int = 
     try:
         response_text = await call_llm(
             REWRITE_SYSTEM_PROMPT, user_prompt,
-            db=db, submission_id=submission_id
+            db=db, project_id=project_id
         )
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:

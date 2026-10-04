@@ -26,7 +26,7 @@ async def call_llm(
     system_prompt: str,
     user_prompt: str,
     db: Optional[Session] = None,
-    submission_id: Optional[int] = None,
+    project_id: Optional[int] = None,
     retry: int = 3
 ) -> str:
     """Call LLM with caching, logging, and retry."""
@@ -37,7 +37,7 @@ async def call_llm(
         # Log cache hit
         if db:
             log = LLMLog(
-                submission_id=submission_id,
+                project_id=project_id,
                 provider=provider.provider_name,
                 model=provider.default_model,
                 prompt_tokens=0,
@@ -59,7 +59,7 @@ async def call_llm(
                 _cache.popitem(last=False)
             if db:
                 log = LLMLog(
-                    submission_id=submission_id,
+                    project_id=project_id,
                     provider=response.provider,
                     model=response.model,
                     prompt_tokens=response.prompt_tokens,

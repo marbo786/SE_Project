@@ -7,12 +7,12 @@ class Artifact(Base):
     __tablename__ = "artifacts"
 
     id = Column(Integer, primary_key=True, index=True)
-    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
-    artifact_type = Column(String, nullable=False)  # srs, uml_usecase, uml_class, uml_sequence
-    file_format = Column(String, nullable=False)  # docx, pdf, plantuml
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    artifact_type = Column(String, nullable=False)
+    file_format = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
     original_filename = Column(String, nullable=False)
-    extracted_content = Column(Text, nullable=True)  # JSON: requirements or UML model
+    extracted_content = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    submission = relationship("Submission", back_populates="artifacts")
+    project = relationship("Project", back_populates="artifacts")

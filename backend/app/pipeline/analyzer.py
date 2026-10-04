@@ -8,7 +8,7 @@ from typing import List, Dict
 from sqlalchemy.orm import Session
 
 from ..core.database import SessionLocal
-from ..models.submission import Submission
+from ..models.project import Project
 from ..models.artifact import Artifact
 from ..models.finding import Finding
 from ..models.traceability import TraceLink
@@ -24,7 +24,7 @@ from .checks.traceability_checks import build_trace_links, check_traceability
 from .scoring import compute_scores
 
 
-def run_analysis_pipeline(submission_id: int, _db=None) -> None:
+def run_analysis_pipeline(project_id: int, _db=None) -> None:
     """
     Full analysis pipeline for a submission.
     Creates its own DB session so it works correctly as a BackgroundTask.
@@ -32,21 +32,21 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
     """
     db = SessionLocal()
     try:
-        submission = db.query(Submission).filter(Submission.id == submission_id).first()
+        project = db.query(Project).filter(Project.id == project_id).first()
         if not submission:
             return
 
-        submission.status = "analyzing"
+        project.status = "analyzing"
         db.commit()
 
         # Delete existing analysis data to prevent duplication on re-analysis
-        db.query(Finding).filter(Finding.submission_id == submission_id).delete()
-        db.query(TraceLink).filter(TraceLink.submission_id == submission_id).delete()
-        db.query(LLMLog).filter(LLMLog.submission_id == submission_id).delete()
-        db.query(QualityScore).filter(QualityScore.submission_id == submission_id).delete()
+        db.query(Finding).filter(Finding.project_id == project_id).delete()
+        db.query(TraceLink).filter(TraceLink.project_id == project_id).delete()
+        db.query(LLMLog).filter(LLMLog.project_id == project_id).delete()
+        db.query(QualityScore).filter(QualityScore.project_id == project_id).delete()
         db.commit()
 
-        artifacts = db.query(Artifact).filter(Artifact.submission_id == submission_id).all()
+        artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
 
         # Group artifacts by type
         srs_artifact = next((a for a in artifacts if a.artifact_type == 'srs'), None)
@@ -102,16 +102,16 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
             loop = asyncio.new_event_loop()
             try:
                 llm_findings = loop.run_until_complete(
-                    check_testability(requirements, db=db, submission_id=submission_id)
+                    check_testability(requirements, db=db, project_id=project_id)
                 )
                 all_findings += llm_findings
                 conflict_findings = loop.run_until_complete(
-                    check_conflicts(requirements, db=db, submission_id=submission_id)
+                    check_conflicts(requirements, db=db, project_id=project_id)
                 )
                 all_findings += conflict_findings
                 
                 loop.run_until_complete(
-                    generate_rewrites(all_findings, db=db, submission_id=submission_id)
+                    generate_rewrites(all_findings, db=db, project_id=project_id)
                 )
             except Exception:
                 pass  # LLM failure is non-fatal
@@ -138,7 +138,7 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
         # ── Save findings ─────────────────────────────────────────────────
         for fd in all_findings:
             finding = Finding(
-                submission_id=submission_id,
+                project_id=project_id,
                 rule_id=fd['rule_id'],
                 severity=fd['severity'],
                 quoted_text=fd.get('quoted_text'),
@@ -153,7 +153,7 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
         # ── Save trace links ──────────────────────────────────────────────
         for tl in trace_link_dicts:
             link = TraceLink(
-                submission_id=submission_id,
+                project_id=project_id,
                 source_type=tl['source_type'],
                 source_id=tl['source_id'],
                 target_type=tl['target_type'],
@@ -166,7 +166,7 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
 
         # ── Compute and save score ────────────────────────────────────────
         scores = compute_scores(all_findings, trace_link_dicts)
-        existing_score = db.query(QualityScore).filter(QualityScore.submission_id == submission_id).first()
+        existing_score = db.query(QualityScore).filter(QualityScore.project_id == project_id).first()
         if existing_score:
             existing_score.requirements_score = scores['requirements_score']
             existing_score.uml_score = scores['uml_score']
@@ -174,19 +174,19 @@ def run_analysis_pipeline(submission_id: int, _db=None) -> None:
             existing_score.overall_score = scores['overall_score']
         else:
             score_obj = QualityScore(
-                submission_id=submission_id,
+                project_id=project_id,
                 **scores
             )
             db.add(score_obj)
 
-        submission.status = "done"
+        project.status = "done"
         db.commit()
 
     except Exception as e:
         try:
-            submission = db.query(Submission).filter(Submission.id == submission_id).first()
-            if submission:
-                submission.status = "error"
+            project = db.query(Project).filter(Project.id == project_id).first()
+            if project:
+                project.status = "error"
                 db.commit()
         except Exception:
             pass
@@ -199,4 +199,3 @@ def _read_artifact_content(artifact: Artifact) -> str:
     """Read raw text content from an artifact file."""
     with open(artifact.file_path, 'r', encoding='utf-8', errors='ignore') as f:
         return f.read()
-
