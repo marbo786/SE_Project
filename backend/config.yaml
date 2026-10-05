@@ -1,4 +1,4 @@
-﻿rules:
+rules:
   ambiguous_words:
     severity: major
     lexicon:
@@ -58,6 +58,11 @@ trace_jaccard_threshold: 0.3
 
 trace_jaccard_threshold: 0.3
 
+severity_penalty:
+  critical: 15
+  major: 5
+  minor: 2
+
 rubric:
   requirements: 40
   uml: 30
@@ -74,4 +79,5 @@ expected_sections:
   - "5. Non-functional requirements"
   - "6. External interface requirements"
   - "7. Data requirements"
+
 

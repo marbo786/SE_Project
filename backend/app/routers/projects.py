@@ -189,7 +189,10 @@ def compare_versions(project_id: int, with_version: int, db: Session = Depends(g
     prev_findings = db.query(Finding).filter(Finding.project_id == previous.id).all()
     
     def _make_key(f):
-        return (f.rule_id, f.artifact_type, f.requirement_id, f.quoted_text)
+        if f.requirement_id:
+            return (f.rule_id, f.artifact_type, f.requirement_id, None)
+        qt = f.quoted_text.lower().strip() if f.quoted_text else None
+        return (f.rule_id, f.artifact_type, None, qt)
         
     curr_keys = { _make_key(f): f for f in curr_findings }
     prev_keys = { _make_key(f): f for f in prev_findings }

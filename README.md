@@ -1,4 +1,4 @@
-# SRS Reviewer
+﻿# SRS Reviewer
 
 SRS Reviewer is an AI-powered SaaS tool for Software Engineers and Product Managers. It acts like **Grammarly for Software Engineering**, instantly analyzing your Software Requirements Specifications (SRS) and UML diagrams for defects, ambiguities, conflicting requirements, and missing traceability.
 
@@ -10,6 +10,16 @@ SRS Reviewer is an AI-powered SaaS tool for Software Engineers and Product Manag
 - **Traceability Matrix:** Automatically builds and tracks relationships between your functional requirements, use cases, and classes to ensure no dead-ends.
 - **Version History & Diffing:** Re-upload a document and immediately see which findings you resolved, which persisted, and if you introduced any new bugs.
 - **PDF Export:** Clean, one-click exports of your analysis reports.
+
+## Quality Scoring Formula
+
+The system calculates normalized scores for Requirements, UML, and Traceability based on defect density (penalties per element) to ensure long documents aren't disproportionately penalized.
+
+- **Element Count**: Number of requirements, UML elements, or trace links.
+- **Base Penalty**: Sum of penalties for findings (Critical = 15, Major = 5, Minor = 2).
+- **Raw Category Score** = `max(0, 100 - (Base Penalty / Element Count) * 10)`
+
+The final overall score is a weighted average configured via `config.yaml` (e.g., Requirements 40%, UML 30%, Traceability 30%).
 
 ## Tech Stack
 
@@ -66,3 +76,4 @@ SRS Reviewer is an AI-powered SaaS tool for Software Engineers and Product Manag
 3. Click **"Analyze New SRS"** from your Dashboard.
 4. Upload your SRS (`.docx` or `.pdf`) and any optional PlantUML diagrams (`.txt`, `.puml`).
 5. Review the comprehensive quality report, grab the AI rewrite suggestions, and export your PDF!
+

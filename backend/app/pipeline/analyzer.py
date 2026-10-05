@@ -24,7 +24,7 @@ from .checks.traceability_checks import build_trace_links, check_traceability
 from .scoring import compute_scores
 
 
-def run_analysis_pipeline(project_id: int, _db=None) -> None:
+async def run_analysis_pipeline(project_id: int, _db=None) -> None:
     """
     Full analysis pipeline for a submission.
     Creates its own DB session so it works correctly as a BackgroundTask.
@@ -100,23 +100,14 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
         # ── LLM checks (run async checks from sync context) ──────────────
         has_llm_error = False
         if requirements:
-            loop = asyncio.new_event_loop()
             try:
-                llm_findings = loop.run_until_complete(
-                    check_testability(requirements, db=db, project_id=project_id)
-                )
+                llm_findings = await check_testability(requirements, db=db, project_id=project_id)
                 all_findings += llm_findings
-                conflict_findings = loop.run_until_complete(
-                    check_conflicts(requirements, db=db, project_id=project_id)
-                )
+                conflict_findings = await check_conflicts(requirements, db=db, project_id=project_id)
                 all_findings += conflict_findings
-                
-                loop.run_until_complete(
-                    generate_rewrites(all_findings, db=db, project_id=project_id)
-                )
+                await generate_rewrites(all_findings, db=db, project_id=project_id)
             except Exception as e:
                 has_llm_error = True
-                from .checks.llm_checks import LLMCheckError
                 import logging
                 logging.getLogger(__name__).warning(f"LLM failure: {e}")
                 all_findings.append({
@@ -124,9 +115,6 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
                     'explanation': f'Warning: LLM check failed: {e}',
                     'requirement_id': None, 'finding_type': 'system', 'artifact_type': 'srs'
                 })
-        
-            finally:
-                loop.close()
 
         # ── Traceability ──────────────────────────────────────────────────
         trace_link_dicts: List[Dict] = []
@@ -193,7 +181,20 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
         db.commit()
 
         # ── Compute and save score ────────────────────────────────────────
-        scores = compute_scores(all_findings, trace_link_dicts)
+        
+        req_count = len(requirements)
+        uml_elements_count = 0
+        if usecase_model:
+            uml_elements_count += len(usecase_model.get('use_cases', [])) + len(usecase_model.get('actors', []))
+        if class_model:
+            uml_elements_count += len(class_model.get('classes', []))
+        if sequence_model:
+            uml_elements_count += len(sequence_model.get('messages', []))
+            
+        link_count = len(trace_link_dicts)
+        
+        scores = compute_scores(all_findings, trace_link_dicts, req_count, uml_elements_count, link_count)
+
         existing_score = db.query(QualityScore).filter(QualityScore.project_id == project_id).first()
         if existing_score:
             existing_score.requirements_score = scores['requirements_score']
