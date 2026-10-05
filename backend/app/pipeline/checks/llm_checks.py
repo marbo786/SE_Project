@@ -5,7 +5,7 @@ import json
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, ValidationError
 from ...llm.engine import call_llm
-from ...pipeline.redactor import redact_text
+from ...pipeline.redactor import Redactor
 from ...core.config import get_yaml_config
 
 class LLMCheckError(Exception):
@@ -95,11 +95,12 @@ async def check_testability(requirements: List[Dict], db=None, project_id: int =
     severity = config.get('rules', {}).get('llm_not_testable', {}).get('severity', 'major')
     findings = []
 
+    redactor = Redactor()
     reqs_for_llm = []
     for req in requirements:
         reqs_for_llm.append({
             'requirement_id': req.get('id', 'UNKNOWN'),
-            'text': redact_text(req.get('text', ''))
+            'text': redactor.redact(req.get('text', ''))
         })
 
     user_prompt = f"Assess the testability of these requirements:\n\n{json.dumps(reqs_for_llm, indent=2)}"
@@ -114,7 +115,7 @@ async def check_testability(requirements: List[Dict], db=None, project_id: int =
                 'rule_id': 'FR-403',
                 'severity': severity,
                 'quoted_text': original.get('text', result.requirement_text or ''),
-                'explanation': f"Requirement is not testable: {result.reason or 'vague or unmeasurable'}",
+                'explanation': f"Requirement is not testable: {redactor.unredact(result.reason) if result.reason else 'vague or unmeasurable'}",
                 'requirement_id': req_id,
                 'finding_type': 'llm',
                 'artifact_type': 'srs',
@@ -129,11 +130,12 @@ async def check_conflicts(requirements: List[Dict], db=None, project_id: int = N
     severity = config.get('rules', {}).get('llm_conflict', {}).get('severity', 'critical')
     findings = []
 
+    redactor = Redactor()
     reqs_for_llm = []
     for req in requirements:
         reqs_for_llm.append({
             'id': req.get('id', 'UNKNOWN'),
-            'text': redact_text(req.get('text', ''))
+            'text': redactor.redact(req.get('text', ''))
         })
 
     user_prompt = f"Identify any conflicting requirements in this list:\n\n{json.dumps(reqs_for_llm, indent=2)}"
@@ -145,7 +147,7 @@ async def check_conflicts(requirements: List[Dict], db=None, project_id: int = N
             'rule_id': 'FR-404',
             'severity': severity,
             'quoted_text': f"{conflict.req_id_1} vs {conflict.req_id_2}",
-            'explanation': conflict.explanation or 'Requirements conflict.',
+            'explanation': redactor.unredact(conflict.explanation) if conflict.explanation else 'Requirements conflict.',
             'requirement_id': conflict.req_id_1,
             'finding_type': 'llm',
             'artifact_type': 'srs',

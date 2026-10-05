@@ -14,6 +14,7 @@ class Finding(Base):
     explanation = Column(Text, nullable=False)
     artifact_type = Column(String, nullable=True)
     requirement_id = Column(String, nullable=True)
+    source_ref = Column(String, nullable=True)
     finding_type = Column(String, default="deterministic")
     rewrite_suggestion = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

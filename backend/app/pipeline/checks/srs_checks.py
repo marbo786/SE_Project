@@ -24,7 +24,8 @@ def check_ambiguous_words(requirements: List[Dict]) -> List[Dict]:
                 'explanation': f'Ambiguous term(s) found: {found}. Use measurable, specific language.',
                 'requirement_id': req.get('id'),
                 'finding_type': 'deterministic',
-                'artifact_type': 'srs'
+                'artifact_type': 'srs',
+                'source_ref': req.get('source_ref')
             })
     return findings
 
@@ -45,7 +46,8 @@ def check_multiple_shall(requirements: List[Dict]) -> List[Dict]:
                 'explanation': f'Requirement contains {count} occurrences of "shall". It should be atomic (one shall per requirement).',
                 'requirement_id': req.get('id'),
                 'finding_type': 'deterministic',
-                'artifact_type': 'srs'
+                'artifact_type': 'srs',
+                'source_ref': req.get('source_ref')
             })
     return findings
 
@@ -66,7 +68,8 @@ def check_missing_sections(sections: List[str]) -> List[Dict]:
                 'explanation': f'Missing expected SRS section: "{expected_section}".',
                 'requirement_id': None,
                 'finding_type': 'deterministic',
-                'artifact_type': 'srs'
+                'artifact_type': 'srs',
+                'source_ref': None
             })
     return findings
 
@@ -85,7 +88,8 @@ def check_no_identifier(requirements: List[Dict]) -> List[Dict]:
                 'explanation': 'Requirement has no identifier (e.g., FR-101, NFR-01).',
                 'requirement_id': None,
                 'finding_type': 'deterministic',
-                'artifact_type': 'srs'
+                'artifact_type': 'srs',
+                'source_ref': req.get('source_ref')
             })
     return findings
 

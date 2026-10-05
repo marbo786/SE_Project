@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import sys
@@ -15,8 +15,14 @@ if settings.SECRET_KEY == "changeme" or "changeme" in settings.SECRET_KEY:
     print("FATAL ERROR: SECRET_KEY cannot be the default placeholder 'changeme'.")
     sys.exit(1)
 
-# Create all tables on startup
-Base.metadata.create_all(bind=engine)
+from alembic import command
+from alembic.config import Config
+import os
+alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
+alembic_cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "alembic"))
+with engine.begin() as connection:
+    alembic_cfg.attributes["connection"] = connection
+    command.upgrade(alembic_cfg, "head")
 
 app = FastAPI(
     title="SRS Reviewer API",

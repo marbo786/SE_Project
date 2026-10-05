@@ -10,6 +10,7 @@ class FindingOut(BaseModel):
     explanation: str
     artifact_type: Optional[str]
     requirement_id: Optional[str]
+    source_ref: Optional[str] = None
     finding_type: str
     rewrite_suggestion: Optional[str]
     created_at: datetime
