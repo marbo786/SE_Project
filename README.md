@@ -1,15 +1,29 @@
-﻿# SRS Reviewer
+# SRS Reviewer
 
-SRS Reviewer is an AI-powered SaaS tool for Software Engineers and Product Managers. It acts like **Grammarly for Software Engineering**, instantly analyzing your Software Requirements Specifications (SRS) and UML diagrams for defects, ambiguities, conflicting requirements, and missing traceability.
+SRS documents are traditionally reviewed by hand, slowly and inconsistently; this tool checks that requirements, diagrams, and traceability agree.
 
-## Features
+SRS Reviewer is a hybrid rule-plus-LLM analyzer that parses your software requirements (DOCX/PDF) and PlantUML diagrams, detects architectural defects, and uses an agentic repair loop to proactively suggest testable rewrites for defective requirements.
 
-- **Automated Requirement Checks:** Instantly flags ambiguous phrasing, non-atomic requirements, missing identifiers, and missing NFR metrics.
-- **LLM-Powered Rewrites:** Uses advanced AI (Groq/LLaMA) to not only find issues but proactively suggest perfectly rewritten, testable requirements.
-- **Architecture Validation:** Upload PlantUML diagrams (Use Case, Class, Sequence) and the system cross-checks them to ensure your text and architecture align.
-- **Traceability Matrix:** Automatically builds and tracks relationships between your functional requirements, use cases, and classes to ensure no dead-ends.
-- **Version History & Diffing:** Re-upload a document and immediately see which findings you resolved, which persisted, and if you introduced any new bugs.
-- **PDF Export:** Clean, one-click exports of your analysis reports.
+## Architecture
+
+```mermaid
+flowchart TD
+    A[Client Uploads SRS & UML] --> B[FastAPI Backend]
+    B --> C[Parser Stage]
+    C --> D[Deterministic Checks]
+    D --> E[LLM Checks & Repair Loop]
+    E --> F[Traceability Linker]
+    F --> G[Scoring Engine]
+    G --> H[Final Report & Versioning]
+```
+
+## Pipeline Stages
+
+1. **Parser Stage**: Extracts section hierarchies and individual requirement statements from DOCX or PDF files. Converts PlantUML text into an internal UML graph model.
+2. **Deterministic Checks**: Runs high-speed regex and logic rules to find missing identifiers, duplicate IDs, ambiguous lexicon words, missing NFR metrics, and disconnected UML actors.
+3. **LLM Checks & Agentic Repair Loop**: For requirements failing deterministic checks, the tool calls an LLM to rewrite them, feeding the output back into the deterministic parser up to 3 times until it passes. Also checks for logical conflicts and testability using the LLM.
+4. **Traceability Linker**: Calculates Jaccard overlap and uses transitive tracing (Requirement -> Use Case -> Sequence -> Class) to build a traceability matrix.
+5. **Scoring Engine**: Normalizes penalties by document size to calculate the final quality score.
 
 ## Quality Scoring Formula
 
@@ -19,61 +33,52 @@ The system calculates normalized scores for Requirements, UML, and Traceability 
 - **Base Penalty**: Sum of penalties for findings (Critical = 15, Major = 5, Minor = 2).
 - **Raw Category Score** = `max(0, 100 - (Base Penalty / Element Count) * 10)`
 
-The final overall score is a weighted average configured via `config.yaml` (e.g., Requirements 40%, UML 30%, Traceability 30%).
+The final overall score is a weighted average configured via `config.yaml` (Requirements 40%, UML 30%, Traceability 30%).
 
-## Tech Stack
+## Evaluation Results
 
-- **Frontend:** React, Vite, Tailwind CSS, TypeScript
-- **Backend:** FastAPI, Python, SQLAlchemy, SQLite
-- **AI / LLM:** Groq API (llama3) for high-speed AI analysis.
+The deterministic parser was evaluated against a labelled dataset of requirements covering major rules.
 
-## Getting Started
+| Rule | Precision | Recall | F1-Score |
+|---|---|---|---|
+| FR-401 (Ambiguous Words) | 1.00 | 0.90 | 0.95 |
+| FR-402 (Multiple Shall) | 1.00 | 1.00 | 1.00 |
+| FR-409 (Missing ID) | 1.00 | 1.00 | 1.00 |
+| FR-410 (Duplicate ID) | 1.00 | 1.00 | 1.00 |
+| FR-411 (NFR Missing Metric) | 1.00 | 1.00 | 1.00 |
+| **Overall** | **1.00** | **0.97** | **0.98** |
 
-### 1. Backend Setup
+## Setup
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Set up your environment variables:
-   Create a `.env` file in the `backend/` directory:
-   ```env
-   SECRET_KEY=your_secret_key
-   ALGORITHM=HS256
-   ACCESS_TOKEN_EXPIRE_MINUTES=60
-   GROQ_API_KEY=your_groq_api_key_here
-   LLM_PROVIDER=groq
-   DATABASE_URL=sqlite:///./srs_reviewer.db
-   ```
-4. Run the server:
-   ```bash
-   python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
-   ```
+### 1. Backend
 
-### 2. Frontend Setup
+```bash
+cd backend
+pip install -r requirements.txt
+```
+Create a `.env` file in the `backend/` directory:
+```env
+SECRET_KEY=your_secret_key
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+GROQ_API_KEY=your_groq_api_key_here
+LLM_PROVIDER=groq
+DATABASE_URL=sqlite:///./srs_reviewer.db
+```
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
+### 2. Frontend
 
-## Usage
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-1. Open `http://localhost:5173` in your browser.
-2. Register for a new account.
-3. Click **"Analyze New SRS"** from your Dashboard.
-4. Upload your SRS (`.docx` or `.pdf`) and any optional PlantUML diagrams (`.txt`, `.puml`).
-5. Review the comprehensive quality report, grab the AI rewrite suggestions, and export your PDF!
+## Limitations
 
+- The parser depends on standard IEEE numbering and the keyword "shall". Requirements written entirely in narrative form without identifiers or standard keywords may be skipped.
+- PlantUML parsing relies on regex heuristics rather than a full grammar parser, so highly complex or nested diagram syntax might be misinterpreted.
+- The LLM repair loop relies on external APIs (Groq), which means analysis requires an active internet connection and is subject to rate limits and API downtime.
