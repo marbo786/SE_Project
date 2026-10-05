@@ -13,6 +13,8 @@ class FindingOut(BaseModel):
     source_ref: Optional[str] = None
     finding_type: str
     rewrite_suggestion: Optional[str]
+    rewrite_attempts: Optional[int] = 0
+    rewrite_passed: Optional[bool] = False
     created_at: datetime
 
     class Config:

@@ -155,31 +155,3 @@ async def check_conflicts(requirements: List[Dict], db=None, project_id: int = N
         })
     return findings
 
-async def generate_rewrites(findings: List[Dict], db=None, project_id: int = None) -> None:
-    """FR-407: Generate rewrite suggestions for defective requirements."""
-    srs_findings = [f for f in findings if f.get('artifact_type') == 'srs' and f.get('requirement_id')]
-    
-    if not srs_findings:
-        return
-        
-    req_map = {}
-    for f in srs_findings:
-        rid = f['requirement_id']
-        if rid not in req_map:
-            req_map[rid] = {
-                'requirement_id': rid,
-                'original_text': f.get('quoted_text', ''),
-                'flaws': []
-            }
-        req_map[rid]['flaws'].append(f['explanation'])
-        
-    defects = list(req_map.values())
-    user_prompt = f"Rewrite these defective requirements to resolve the listed flaws:\n\n{json.dumps(defects, indent=2)}"
-    
-    validated = await _call_and_parse(REWRITE_SYSTEM_PROMPT, user_prompt, RewriteResponse, db, project_id)
-    rewrite_map = {item.requirement_id: item.rewrite_suggestion for item in validated.rewrites}
-    
-    for f in srs_findings:
-        rid = f['requirement_id']
-        if rid in rewrite_map and rewrite_map[rid]:
-            f['rewrite_suggestion'] = rewrite_map[rid]

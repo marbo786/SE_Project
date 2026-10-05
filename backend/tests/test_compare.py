@@ -34,11 +34,11 @@ def test_compare_versions():
     from app.models.project import Project
     from app.models.finding import Finding
     
-    user = User(name="Test", email="test@ex.com", hashed_password=get_password_hash("pass"))
+    user = User(name="Test", email="test_compare@ex.com", hashed_password=get_password_hash("pass"))
     db.add(user)
     db.commit()
     
-    res = client.post("/auth/login", json={"email": "test@ex.com", "password": "pass"})
+    res = client.post("/auth/login", json={"email": "test_compare@ex.com", "password": "pass"})
     token = res.json().get("access_token")
     if not token:
         print("Login failed:", res.json())

@@ -81,3 +81,7 @@ expected_sections:
   - "7. Data requirements"
 
 
+
+agentic_repair:
+  enabled: true
+  max_llm_calls_per_project: 50

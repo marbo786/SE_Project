@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime, Enum
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime, Enum, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..core.database import Base
@@ -17,6 +17,8 @@ class Finding(Base):
     source_ref = Column(String, nullable=True)
     finding_type = Column(String, default="deterministic")
     rewrite_suggestion = Column(Text, nullable=True)
+    rewrite_attempts = Column(Integer, default=0)
+    rewrite_passed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="findings")

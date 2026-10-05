@@ -68,12 +68,13 @@ def create_mock_project(db):
     
     return project, path
 
-def test_analysis_reaches_done(monkeypatch):
+@pytest.mark.asyncio
+async def test_analysis_reaches_done(monkeypatch):
     monkeypatch.setattr(engine, "get_provider", lambda: MockSuccessProvider())
     db = TestingSessionLocal()
     project, path = create_mock_project(db)
     
-    run_analysis_pipeline(project.id)
+    await run_analysis_pipeline(project.id)
     
     db.refresh(project)
     assert project.status == "done"
@@ -82,12 +83,13 @@ def test_analysis_reaches_done(monkeypatch):
         os.remove(path)
     db.close()
 
-def test_analysis_reaches_partial(monkeypatch):
+@pytest.mark.asyncio
+async def test_analysis_reaches_partial(monkeypatch):
     monkeypatch.setattr(engine, "get_provider", lambda: MockFailProvider())
     db = TestingSessionLocal()
     project, path = create_mock_project(db)
     
-    run_analysis_pipeline(project.id)
+    await run_analysis_pipeline(project.id)
     
     db.refresh(project)
     assert project.status == "partial"

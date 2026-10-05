@@ -61,7 +61,6 @@ export default function ReportPage() {
     
     // Quick and dirty fetch for scores from findings list just for the UI
     // The backend computes it in QualityScore, but we can just use the project's state.
-  }, [projectId])
 
   const formatDate = (d: string) => new Date(d).toLocaleString()
 
@@ -134,10 +133,29 @@ export default function ReportPage() {
                       "{f.quoted_text}"
                     </blockquote>
                   )}
-                  {f.rewrite_suggestion && (
-                    <p className="text-sm text-blue-600 mt-3 font-medium bg-blue-50 p-3 rounded-md">
-                      💡 Suggestion: {f.rewrite_suggestion}
-                    </p>
+                                    {f.rewrite_suggestion && (
+                    <div className="mt-3 bg-blue-50 p-3 rounded-md border border-blue-100">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-blue-800 text-sm">AI Rewrite Suggestion</span>
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${f.rewrite_passed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                            {f.rewrite_passed ? 'Passed Checks' : 'Still Failing'} 
+                          </span>
+                          <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                            {f.rewrite_attempts} Attempt{f.rewrite_attempts !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <button 
+                          onClick={() => navigator.clipboard.writeText(f.rewrite_suggestion)}
+                          className="text-xs px-2 py-1 bg-white border border-blue-200 text-blue-600 rounded hover:bg-blue-50 transition-colors print:hidden"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="text-sm text-blue-900 font-medium whitespace-pre-wrap">
+                        {f.rewrite_suggestion}
+                      </p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -172,7 +190,7 @@ export default function ReportPage() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2">
-                            <span className={px-2 py-1 text-xs rounded-full \}>{t.status}</span>
+                            <span className={`px-2 py-1 text-xs rounded-full ${t.status === 'confirmed' ? 'bg-green-100 text-green-800' : t.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{t.status}</span>
                             {t.status === 'suggested' && (
                                 <div className="flex flex-col gap-1 print:hidden">
                                     <button onClick={() => updateLinkStatus(t.id, 'confirmed')} className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600">Confirm</button>
@@ -246,3 +264,4 @@ export default function ReportPage() {
     </div>
   )
 }
+

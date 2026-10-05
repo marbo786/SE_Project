@@ -19,7 +19,7 @@ from .srs.parser import parse_srs
 from .uml.parser import parse_plantuml
 from .checks.srs_checks import run_all_srs_checks
 from .checks.uml_checks import run_all_uml_checks
-from .checks.llm_checks import check_testability, check_conflicts, generate_rewrites
+from .checks.llm_checks import check_testability, check_conflicts
 from .checks.traceability_checks import build_trace_links, check_traceability
 from .scoring import compute_scores
 
@@ -105,7 +105,9 @@ async def run_analysis_pipeline(project_id: int, _db=None) -> None:
                 all_findings += llm_findings
                 conflict_findings = await check_conflicts(requirements, db=db, project_id=project_id)
                 all_findings += conflict_findings
-                await generate_rewrites(all_findings, db=db, project_id=project_id)
+                
+                from .repair import agentic_repair_loop
+                await agentic_repair_loop(all_findings, db=db, project_id=project_id)
             except Exception as e:
                 has_llm_error = True
                 import logging
@@ -162,7 +164,9 @@ async def run_analysis_pipeline(project_id: int, _db=None) -> None:
                 artifact_type=fd.get('artifact_type'),
                 requirement_id=fd.get('requirement_id'),
                 finding_type=fd.get('finding_type', 'deterministic'),
-                rewrite_suggestion=fd.get('rewrite_suggestion')
+                rewrite_suggestion=fd.get('rewrite_suggestion'),
+                rewrite_attempts=fd.get('rewrite_attempts', 0),
+                rewrite_passed=fd.get('rewrite_passed', False)
             )
             db.add(finding)
 
