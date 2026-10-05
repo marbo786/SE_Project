@@ -17,15 +17,47 @@ export default function ReportPage() {
   const [compareData, setCompareData] = useState<any>(null)
   const [activeTab, setActiveTab] = useState('scores')
 
-  useEffect(() => {
-    projectsApi.get(projectId).then(res => {
-      setProject(res.data)
-      if (res.data.version > 1) {
-        projectsApi.compare(projectId, res.data.version - 1).then(cRes => setCompareData(cRes.data)).catch(() => {})
-      }
-    })
-    findingsApi.getByProject(projectId).then(res => setFindings(res.data))
-    traceabilityApi.getByProject(projectId).then(res => setTraceLinks(res.data))
+    const fetchTraceLinks = () => traceabilityApi.getByProject(projectId).then(res => setTraceLinks(res.data))
+    
+    useEffect(() => {
+      projectsApi.get(projectId).then(res => {
+        setProject(res.data)
+        if (res.data.version > 1) {
+          projectsApi.compare(projectId, res.data.version - 1).then(cRes => setCompareData(cRes.data)).catch(() => {})
+        }
+      })
+      findingsApi.getByProject(projectId).then(res => setFindings(res.data))
+      fetchTraceLinks()
+    }, [projectId])
+
+    const updateLinkStatus = async (linkId: number, status: string) => {
+        try {
+            const token = localStorage.getItem('token');
+            await fetch(`http://localhost:8000/traceability/${linkId}`, {
+                method: 'PATCH',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
+            fetchTraceLinks();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+    
+    const downloadTraceability = () => {
+        const token = localStorage.getItem('token');
+        fetch(`http://localhost:8000/traceability/project/${projectId}/export`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => res.blob())
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `traceability_${projectId}.csv`;
+            a.click();
+        });
+    }
     
     // Quick and dirty fetch for scores from findings list just for the UI
     // The backend computes it in QualityScore, but we can just use the project's state.
@@ -116,7 +148,10 @@ export default function ReportPage() {
 
       {/* Traceability */}
       <div className={activeTab === 'traceability' ? "block mt-8" : "hidden print:block print:mt-8"}>
-        <h2 className="text-2xl font-bold mb-4 hidden print:block">Traceability Matrix</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold hidden print:block">Traceability Matrix</h2>
+          <button onClick={downloadTraceability} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 print:hidden">Download CSV</button>
+        </div>
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -136,7 +171,15 @@ export default function ReportPage() {
                           <span className="font-medium">{t.source_id}</span> ({t.source_type})
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <Link2 className="h-4 w-4 inline text-blue-400" />
+                          <div className="flex items-center justify-center gap-2">
+                            <span className={px-2 py-1 text-xs rounded-full \}>{t.status}</span>
+                            {t.status === 'suggested' && (
+                                <div className="flex flex-col gap-1 print:hidden">
+                                    <button onClick={() => updateLinkStatus(t.id, 'confirmed')} className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600">Confirm</button>
+                                    <button onClick={() => updateLinkStatus(t.id, 'rejected')} className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">Reject</button>
+                                </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <span className="font-medium">{t.target_id}</span> ({t.target_type})

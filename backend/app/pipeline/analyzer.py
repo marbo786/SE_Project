@@ -1,4 +1,4 @@
-﻿"""
+"""
 Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
 Runs as a background task with its own database session.
 """
@@ -41,7 +41,7 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
 
         # Delete existing analysis data to prevent duplication on re-analysis
         db.query(Finding).filter(Finding.project_id == project_id).delete()
-        db.query(TraceLink).filter(TraceLink.project_id == project_id).delete()
+        db.query(TraceLink).filter(TraceLink.project_id == project_id, TraceLink.status == 'suggested').delete()
         db.query(LLMLog).filter(LLMLog.project_id == project_id).delete()
         db.query(QualityScore).filter(QualityScore.project_id == project_id).delete()
         db.commit()
@@ -132,17 +132,35 @@ def run_analysis_pipeline(project_id: int, _db=None) -> None:
         trace_link_dicts: List[Dict] = []
 
         if usecase_model:
-            trace_link_dicts = build_trace_links(requirements, usecase_model, sequence_model)
-            existing_links = [
-                {
-                    'source_type': tl['source_type'],
-                    'source_id': tl['source_id'],
-                    'target_type': tl['target_type'],
-                    'target_id': tl['target_id']
-                }
-                for tl in trace_link_dicts
-            ]
-            trace_findings = check_traceability(requirements, usecase_model, sequence_model, existing_links)
+            trace_link_dicts = build_trace_links(requirements, usecase_model, sequence_model, class_model)
+            
+            # Fetch persistent links from DB (confirmed/rejected)
+            persistent_links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
+            persistent_keys = {(l.source_type, l.source_id, l.target_type, l.target_id): l.status for l in persistent_links}
+            
+            final_links_for_check = []
+            final_links_to_save = []
+            
+            # Incorporate newly suggested links if they don't exist
+            for tl in trace_link_dicts:
+                k = (tl['source_type'], tl['source_id'], tl['target_type'], tl['target_id'])
+                if k not in persistent_keys:
+                    final_links_for_check.append(tl)
+                    final_links_to_save.append(tl)
+                    
+            # Incorporate persistent links for checking
+            for l in persistent_links:
+                final_links_for_check.append({
+                    'source_type': l.source_type,
+                    'source_id': l.source_id,
+                    'target_type': l.target_type,
+                    'target_id': l.target_id,
+                    'status': l.status
+                })
+                
+            trace_link_dicts = final_links_to_save  # Only save new ones
+                
+            trace_findings = check_traceability(requirements, usecase_model, sequence_model, class_model, final_links_for_check)
             all_findings += trace_findings
 
         # ── Save findings ─────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-rules:
+﻿rules:
   ambiguous_words:
     severity: major
     lexicon:
@@ -47,10 +47,16 @@ rules:
     severity: major
   trace_usecase_no_seq:
     severity: minor
+  trace_missing_class:
+    severity: major
   llm_not_testable:
     severity: major
   llm_conflict:
     severity: critical
+
+trace_jaccard_threshold: 0.3
+
+trace_jaccard_threshold: 0.3
 
 rubric:
   requirements: 40
@@ -68,3 +74,4 @@ expected_sections:
   - "5. Non-functional requirements"
   - "6. External interface requirements"
   - "7. Data requirements"
+
