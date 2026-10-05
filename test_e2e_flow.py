@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import io
 
@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath('backend'))
 os.chdir(os.path.abspath('backend'))
 
 from fastapi.testclient import TestClient
+os.environ["SECRET_KEY"] = "supersecret_real_key_123"
 from app.main import app
 
 client = TestClient(app)

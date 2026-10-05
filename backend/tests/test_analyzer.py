@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import pytest
 from sqlalchemy import create_engine
@@ -17,7 +17,8 @@ from app.llm.base import BaseLLMProvider, LLMResponse
 from app.llm import engine
 
 # Setup test DB
-engine_test = create_engine("sqlite:///:memory:")
+from sqlalchemy.pool import StaticPool
+engine_test = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 Base.metadata.create_all(bind=engine_test)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_test)
 
@@ -45,7 +46,7 @@ class MockFailProvider(BaseLLMProvider):
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    engine._cache.clear()
+    pass
 
 def create_mock_project(db):
     project = Project(user_id=1, name="Test", version=1, status="pending")
@@ -94,4 +95,5 @@ def test_analysis_reaches_partial(monkeypatch):
     if os.path.exists(path):
         os.remove(path)
     db.close()
+
 

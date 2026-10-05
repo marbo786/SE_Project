@@ -1,11 +1,19 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+import sys
 
 from .core.database import engine, Base
+from .core.config import get_settings
 from .routers import auth, projects, findings, traceability, dashboard
 
 # Import all models so SQLAlchemy can create their tables
 from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score
+
+settings = get_settings()
+if settings.SECRET_KEY == "changeme" or "changeme" in settings.SECRET_KEY:
+    print("FATAL ERROR: SECRET_KEY cannot be the default placeholder 'changeme'.")
+    sys.exit(1)
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
@@ -17,9 +25,10 @@ app = FastAPI(
 )
 
 # CORS configuration - adjust origins for production
+origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,17 +36,14 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
-
 app.include_router(projects.router)
 app.include_router(findings.router)
 app.include_router(traceability.router)
 app.include_router(dashboard.router)
 
-
 @app.get("/", tags=["health"])
 def root():
     return {"status": "ok", "service": "SRS Reviewer API", "version": "1.0.0"}
-
 
 @app.get("/health", tags=["health"])
 def health_check():

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime
+﻿from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..core.database import Base
@@ -15,6 +15,8 @@ class LLMLog(Base):
     latency_ms = Column(Float, default=0.0)
     cache_hit = Column(String, default="false")
     prompt_hash = Column(String, nullable=True)
+    response_text = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="llm_logs")
+

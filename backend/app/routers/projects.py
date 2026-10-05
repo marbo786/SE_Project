@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from ..core.database import get_db
+from ..core.config import get_settings
 from ..core.deps import get_current_user
 from ..models.user import User
 from ..models.project import Project
@@ -17,7 +18,6 @@ from ..pipeline.analyzer import run_analysis_pipeline
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "../../../uploads")
 
 @router.get("/", response_model=List[ProjectOut])
 def list_projects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -50,32 +50,53 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
 
 @router.post("/{project_id}/upload-srs")
 async def upload_srs(project_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    settings = get_settings()
     project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_ext = file.filename.split('.')[-1]
-    safe_name = f"{uuid.uuid4()}.{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, safe_name)
-
     content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large")
+        
+    ext = "txt"
+    if content.startswith(b"PK"):
+        ext = "docx"
+    elif content.startswith(b"%PDF"):
+        ext = "pdf"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only DOCX (zip) and PDF allowed.")
+        
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    safe_name = f"{uuid.uuid4()}.{ext}"
+    file_path = os.path.join(settings.UPLOAD_DIR, safe_name)
+    
     with open(file_path, "wb") as f:
         f.write(content)
-
-    artifact = Artifact(
-        project_id=project.id,
-        artifact_type="srs",
-        file_format=file_ext.lower(),
-        file_path=file_path,
-        original_filename=file.filename
-    )
-    db.add(artifact)
+        
+    artifact = db.query(Artifact).filter(Artifact.project_id == project.id, Artifact.artifact_type == "srs").first()
+    if artifact:
+        if os.path.exists(artifact.file_path):
+            try: os.remove(artifact.file_path)
+            except: pass
+        artifact.file_format = ext
+        artifact.file_path = file_path
+        artifact.original_filename = file.filename
+    else:
+        artifact = Artifact(
+            project_id=project.id,
+            artifact_type="srs",
+            file_format=ext,
+            file_path=file_path,
+            original_filename=file.filename
+        )
+        db.add(artifact)
     db.commit()
     return {"message": "SRS uploaded"}
 
 @router.post("/{project_id}/upload-uml")
 async def upload_uml(project_id: int, uml_type: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    settings = get_settings()
     project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -83,23 +104,39 @@ async def upload_uml(project_id: int, uml_type: str = Form(...), file: UploadFil
     if uml_type not in ["usecase", "class", "sequence"]:
         raise HTTPException(status_code=400, detail="Invalid UML type")
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_ext = file.filename.split('.')[-1]
-    safe_name = f"{uuid.uuid4()}.{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, safe_name)
-
     content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large")
+        
+    client_ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+    if client_ext not in ["puml", "txt", "plantuml"]:
+        raise HTTPException(status_code=400, detail="Invalid UML extension. Only .puml, .txt, .plantuml allowed.")
+
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    safe_name = f"{uuid.uuid4()}.{client_ext}"
+    file_path = os.path.join(settings.UPLOAD_DIR, safe_name)
+
     with open(file_path, "wb") as f:
         f.write(content)
 
-    artifact = Artifact(
-        project_id=project.id,
-        artifact_type=f"uml_{uml_type}",
-        file_format=file_ext.lower(),
-        file_path=file_path,
-        original_filename=file.filename
-    )
-    db.add(artifact)
+    atype = f"uml_{uml_type}"
+    artifact = db.query(Artifact).filter(Artifact.project_id == project.id, Artifact.artifact_type == atype).first()
+    if artifact:
+        if os.path.exists(artifact.file_path):
+            try: os.remove(artifact.file_path)
+            except: pass
+        artifact.file_format = client_ext
+        artifact.file_path = file_path
+        artifact.original_filename = file.filename
+    else:
+        artifact = Artifact(
+            project_id=project.id,
+            artifact_type=atype,
+            file_format=client_ext,
+            file_path=file_path,
+            original_filename=file.filename
+        )
+        db.add(artifact)
     db.commit()
     return {"message": f"{uml_type} UML uploaded"}
 

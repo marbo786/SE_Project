@@ -7,7 +7,6 @@ from .groq_provider import GroqProvider
 from .mock_provider import MockLLMProvider
 from ..core.config import get_settings
 from ..models.llm_log import LLMLog
-from collections import OrderedDict
 
 def get_provider() -> BaseLLMProvider:
     settings = get_settings()
@@ -15,11 +14,8 @@ def get_provider() -> BaseLLMProvider:
         return GroqProvider()
     return MockLLMProvider()
 
-_cache: OrderedDict[str, str] = OrderedDict()
-MAX_CACHE_SIZE = 500
-
-def _make_cache_key(system_prompt: str, user_prompt: str) -> str:
-    combined = system_prompt + "|||" + user_prompt
+def _make_cache_key(provider: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    combined = provider + "|||" + model + "|||" + system_prompt + "|||" + user_prompt
     return hashlib.sha256(combined.encode()).hexdigest()
 
 async def call_llm(
@@ -31,32 +27,34 @@ async def call_llm(
 ) -> str:
     """Call LLM with caching, logging, and retry."""
     provider = get_provider()
-    cache_key = _make_cache_key(system_prompt, user_prompt)
+    provider_name = provider.provider_name
+    model_name = provider.default_model
+    
+    cache_key = _make_cache_key(provider_name, model_name, system_prompt, user_prompt)
 
-    if cache_key in _cache:
-        if db:
+    if db:
+        cached = db.query(LLMLog).filter(LLMLog.prompt_hash == cache_key, LLMLog.response_text != None).first()
+        if cached:
             log = LLMLog(
                 project_id=project_id,
-                provider=provider.provider_name,
-                model=provider.default_model,
+                provider=provider_name,
+                model=model_name,
                 prompt_tokens=0,
                 completion_tokens=0,
                 latency_ms=0.0,
                 cache_hit="true",
-                prompt_hash=cache_key
+                prompt_hash=cache_key,
+                response_text=cached.response_text
             )
             db.add(log)
             db.commit()
-        return _cache[cache_key]
+            return cached.response_text
 
     last_error = None
     backoff = 1.0
     for attempt in range(retry):
         try:
             response: LLMResponse = await provider.complete(system_prompt, user_prompt)
-            _cache[cache_key] = response.content
-            if len(_cache) > MAX_CACHE_SIZE:
-                _cache.popitem(last=False)
             if db:
                 log = LLMLog(
                     project_id=project_id,
@@ -66,7 +64,8 @@ async def call_llm(
                     completion_tokens=response.completion_tokens,
                     latency_ms=response.latency_ms,
                     cache_hit="false",
-                    prompt_hash=cache_key
+                    prompt_hash=cache_key,
+                    response_text=response.content
                 )
                 db.add(log)
                 db.commit()
