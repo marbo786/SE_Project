@@ -1,7 +1,12 @@
-﻿from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings
 from functools import lru_cache
 import yaml
 import os
+
+_backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+_backend_env = os.path.join(_backend_dir, ".env")
+_root_env = os.path.abspath(os.path.join(_backend_dir, "..", ".env"))
+_env_file_path = _backend_env if os.path.exists(_backend_env) else (_root_env if os.path.exists(_root_env) else ".env")
 
 class Settings(BaseSettings):
     SECRET_KEY: str = "changeme"
@@ -16,7 +21,7 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
 
     class Config:
-        env_file = "backend/.env"
+        env_file = _env_file_path
         env_file_encoding = "utf-8"
 
 @lru_cache()
