@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { projectsApi, findingsApi, traceabilityApi } from '@/lib/api'
+import { projectsApi, findingsApi, traceabilityApi, API_URL } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,7 +33,7 @@ export default function ReportPage() {
     const updateLinkStatus = async (linkId: number, status: string) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`http://localhost:8000/traceability/${linkId}`, {
+            await fetch(`${API_URL}/traceability/${linkId}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status })
@@ -46,7 +46,7 @@ export default function ReportPage() {
     
     const downloadTraceability = () => {
         const token = localStorage.getItem('token');
-        fetch(`http://localhost:8000/traceability/project/${projectId}/export`, {
+        fetch(`${API_URL}/traceability/project/${projectId}/export`, {
             headers: { 'Authorization': `Bearer ${token}` }
         })
         .then(res => res.blob())
