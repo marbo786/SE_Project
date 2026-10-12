@@ -4,26 +4,61 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --background: 220 8% 7%;      /* #111214 */
+    --foreground: 240 4% 91%;     /* #E7E7E9 */
+    --card: 225 8% 12.5%;         /* #1D1E22 */
+    --card-foreground: 240 4% 91%;
+    --popover: 225 8% 12.5%;      /* #1D1E22 */
+    --popover-foreground: 240 4% 91%;
+    --primary: 212 30% 59%;       /* #7895B5 - Muted steel blue */
+    --primary-foreground: 240 4% 98%;
+    --secondary: 225 8% 10%;      /* #17181B */
+    --secondary-foreground: 240 4% 91%;
+    --muted: 225 8% 10%;          /* #17181B */
+    --muted-foreground: 227 4% 49%; /* #777981 */
+    --accent: 225 8% 15%;         /* #24252A */
+    --accent-foreground: 240 4% 91%;
+    --destructive: 0 48% 52%;     /* #C04848 - Restrained red */
+    --destructive-foreground: 0 0% 100%;
+    --border: 230 6% 20%;         /* #303136 */
+    --input: 230 6% 20%;          /* #303136 */
+    --ring: 212 30% 59%;          /* #7895B5 */
+    --radius: 0.25rem;            /* 4px - crisp engineering radius */
+
+    /* Surface tokens */
+    --surface-main: 220 8% 7%;    /* #111214 */
+    --surface-sub: 225 8% 10%;    /* #17181B */
+    --surface-card: 225 8% 12.5%; /* #1D1E22 */
+    --surface-hover: 228 8% 15%;  /* #24252A */
+
+    /* Semantic status tokens */
+    --status-success: 124 27% 42%;    /* #4E8752 */
+    --status-warning: 36 52% 47%;     /* #B8863A */
+    --status-danger: 0 48% 52%;       /* #C04848 */
+    --status-info: 212 24% 54%;       /* #6E88A6 */
+  }
+
+  .dark {
+    --background: 220 8% 7%;
+    --foreground: 240 4% 91%;
+    --card: 225 8% 12.5%;
+    --card-foreground: 240 4% 91%;
+    --popover: 225 8% 12.5%;
+    --popover-foreground: 240 4% 91%;
+    --primary: 212 30% 59%;
+    --primary-foreground: 240 4% 98%;
+    --secondary: 225 8% 10%;
+    --secondary-foreground: 240 4% 91%;
+    --muted: 225 8% 10%;
+    --muted-foreground: 227 4% 49%;
+    --accent: 225 8% 15%;
+    --accent-foreground: 240 4% 91%;
+    --destructive: 0 48% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 230 6% 20%;
+    --input: 230 6% 20%;
+    --ring: 212 30% 59%;
+    --radius: 0.25rem;
   }
 }
 
@@ -32,7 +67,60 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    background-color: #111214;
+    color: #E7E7E9;
+  }
+  code, pre, .font-mono {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-feature-settings: 'zero';
+  }
+}
+
+/* Scrollbars */
+@layer utilities {
+  .scrollbar-technical {
+    scrollbar-width: thin;
+    scrollbar-color: #303136 #111214;
+  }
+  .scrollbar-technical::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .scrollbar-technical::-webkit-scrollbar-track {
+    background: #111214;
+  }
+  .scrollbar-technical::-webkit-scrollbar-thumb {
+    background-color: #303136;
+    border-radius: 2px;
+  }
+  .scrollbar-technical::-webkit-scrollbar-thumb:hover {
+    background-color: #777981;
+  }
+}
+
+/* Print Styles */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #111214 !important;
+    font-size: 11pt !important;
+  }
+  .print\\:hidden {
+    display: none !important;
+  }
+  .print\\:block {
+    display: block !important;
+  }
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+  th, td {
+    border: 1px solid #d1d5db !important;
+    color: #111214 !important;
+    padding: 6px 10px !important;
   }
 }

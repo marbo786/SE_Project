@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { Search } from "lucide-react"
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
 
@@ -9,7 +10,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-8 w-full rounded border border-[#303136] bg-[#17181B] px-2.5 py-1.5 text-xs text-[#E7E7E9] placeholder:text-[#777981] focus:outline-none focus:border-[#7895B5] focus:ring-1 focus:ring-[#7895B5] disabled:cursor-not-allowed disabled:opacity-40 transition-none font-sans",
           className
         )}
         ref={ref}
@@ -20,4 +21,20 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
 )
 Input.displayName = "Input"
 
-export { Input }
+interface SearchInputProps extends InputProps {
+  containerClassName?: string
+}
+
+const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
+  ({ containerClassName, className, ...props }, ref) => {
+    return (
+      <div className={cn("relative", containerClassName)}>
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#777981]" />
+        <Input ref={ref} className={cn("pl-8", className)} {...props} />
+      </div>
+    )
+  }
+)
+SearchInput.displayName = "SearchInput"
+
+export { Input, SearchInput }

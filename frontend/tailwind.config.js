@@ -7,6 +7,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['IBM Plex Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -37,11 +41,30 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        /* Technical dark surfaces */
+        surface: {
+          main: "#111214",
+          sub: "#17181B",
+          card: "#1D1E22",
+          hover: "#24252A",
+          border: "#303136",
+        },
+        /* Engineering status colors */
+        status: {
+          success: "#4E8752",
+          warning: "#B8863A",
+          danger: "#C04848",
+          info: "#7895B5",
+        },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "4px",
+        md: "4px",
+        sm: "2px",
       },
     },
   },
