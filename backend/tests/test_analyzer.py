@@ -5,7 +5,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import asyncio
 
-sys.path.insert(0, os.path.abspath('..'))
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 import app.main  # Import EVERYTHING so Base has all models
 

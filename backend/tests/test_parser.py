@@ -1,9 +1,11 @@
-﻿import os
+import os
 import sys
 import pytest
 from docx import Document
 
-sys.path.insert(0, os.path.abspath('..'))
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 from app.pipeline.srs.parser import parse_srs
 from app.pipeline.redactor import Redactor

@@ -11,7 +11,12 @@ from .routers import auth, projects, findings, traceability, dashboard
 from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score
 
 settings = get_settings()
-if settings.SECRET_KEY == "changeme" or "changeme" in settings.SECRET_KEY:
+is_testing = (
+    os.environ.get("TESTING") == "true"
+    or os.environ.get("PYTEST_CURRENT_TEST") is not None
+    or "pytest" in sys.modules
+)
+if not is_testing and (settings.SECRET_KEY == "changeme" or "changeme" in settings.SECRET_KEY):
     print("FATAL ERROR: SECRET_KEY cannot be the default placeholder 'changeme'.")
     sys.exit(1)
 

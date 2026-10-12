@@ -22,6 +22,11 @@ jobs:
         pip install -r requirements.txt
         pip install pytest pytest-asyncio
     - name: Run Pytest
+      env:
+        SECRET_KEY: test_secret_key_ci_environment_32chars
+        LLM_PROVIDER: mock
+        TESTING: "true"
+        PYTHONPATH: .
       run: |
         cd backend
         python -m pytest tests/ -v
