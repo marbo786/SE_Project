@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     GROQ_API_KEY: str = ""
     LLM_PROVIDER: str = "mock"
-    LLM_MODEL: str = "llama-3.1-8b-instant"
+    LLM_MODEL: str = "qwen/qwen3.8-27b"
     DATABASE_URL: str = "sqlite:///./srs_reviewer.db"
     CORS_ORIGINS: str = "http://localhost:5173"
     UPLOAD_DIR: str = "./uploads"

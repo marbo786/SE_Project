@@ -1,4 +1,4 @@
-﻿import time
+import time
 import httpx
 from typing import Optional
 from .base import BaseLLMProvider, LLMResponse
@@ -32,9 +32,10 @@ class GroqProvider(BaseLLMProvider):
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.1,
-            "max_tokens": 2048,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 2048
         }
+        if "json" in system_prompt.lower() or "json" in user_prompt.lower():
+            payload["response_format"] = {"type": "json_object"}
         start = time.time()
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(self.BASE_URL, headers=headers, json=payload)
