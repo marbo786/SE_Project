@@ -14,45 +14,30 @@ import {
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { cn } from '@/lib/utils'
-
-interface UserData {
-  id: number
-  name: string
-  email: string
-  role?: string
-}
+import { useAuth } from '@/lib/auth'
+import { apiError } from '@/lib/api'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [user, setUser] = useState<UserData | null>(null)
+  const { user, logout } = useAuth()
+  const [logoutError, setLogoutError] = useState('')
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-
-  useEffect(() => {
-    const u = localStorage.getItem('user')
-    if (u) {
-      try {
-        setUser(JSON.parse(u))
-      } catch {
-        setUser(null)
-      }
-    }
-  }, [])
 
   useEffect(() => {
     setMobileOpen(false)
   }, [location.pathname])
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    navigate('/login')
+  const handleLogout = async () => {
+    try { await logout(); navigate('/login') }
+    catch (error) { setLogoutError(apiError(error, 'Sign out failed. Please try again.')) }
   }
 
   const navLinks = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/projects', icon: FileCode2, label: 'Specifications' },
+    { to: '/account', icon: User, label: 'Account' },
   ]
 
   const isActive = (path: string) => {
@@ -213,7 +198,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content Viewport */}
       <main className="flex-1 min-w-0 overflow-auto bg-[#111214]">
         <div className="p-5 lg:p-6 max-w-6xl mx-auto">
-          {children}
+          {logoutError && <p role="alert" className="p-3 text-red-300">{logoutError}</p>}{children}
         </div>
       </main>
     </div>

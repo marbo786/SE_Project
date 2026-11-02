@@ -2,6 +2,8 @@
 .env
 venv/
 .venv/
+.venv313/
+.tools/
 .pytest_cache/
 .ruff_cache/
 .coverage
@@ -22,6 +24,7 @@ dist/
 *.db
 uploads/
 backend/uploads/
+mail_sink/
 
 # IDEs
 .vscode/

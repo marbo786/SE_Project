@@ -50,32 +50,9 @@ The deterministic parser was evaluated against a labelled dataset of requirement
 
 ## Setup
 
-### 1. Backend
+Use **Python 3.13 and Node 24**. See [the development guide](docs/DEVELOPMENT.md) for setup, migrations, environment configuration, recovery email, Docker, and verification. On Windows run `./run_backend.ps1`, then `npm ci` and `npm run dev` from `frontend`.
 
-```bash
-cd backend
-pip install -r requirements.txt
-```
-Create a `.env` file in the `backend/` directory:
-```env
-SECRET_KEY=your_secret_key
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-GROQ_API_KEY=your_groq_api_key_here
-LLM_PROVIDER=groq
-DATABASE_URL=sqlite:///./srs_reviewer.db
-```
-```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 2. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Implementation is proceeding in verified phases on `codex/project-improvements`. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and remaining acceptance gates. The evaluation above measures the original small deterministic dataset; it does not establish production accuracy or validate AI rewrites.
 
 ## Limitations
 

@@ -1,0 +1,7 @@
+.env
+*.db
+uploads
+mail_sink
+__pycache__
+.pytest_cache
+tests

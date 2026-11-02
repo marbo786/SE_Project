@@ -23,7 +23,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.core.database import Base
-from app.models import user, project, artifact, finding, traceability, llm_log, score
+from app.models import user, project, artifact, finding, traceability, llm_log, score, session
+from app.core.config import get_settings
+config.set_main_option("sqlalchemy.url", get_settings().DATABASE_URL.replace("%", "%%"))
 target_metadata = Base.metadata
 
 

@@ -7,7 +7,9 @@ from typing import List
 
 from ..core.database import get_db
 from ..core.config import get_settings
-from ..core.deps import get_current_user
+from ..core.deps import get_current_user, require_project_access
+from ..core.uploads import accept_upload, store_artifact
+from ..core.limits import enforce_limit
 from ..models.user import User
 from ..models.project import Project
 from ..models.artifact import Artifact
@@ -25,7 +27,10 @@ def list_projects(db: Session = Depends(get_db), current_user: User = Depends(ge
 
 @router.post("/", response_model=ProjectOut)
 def create_project(project_in: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # Check if a project with this name already exists for this user to increment version
+    enforce_limit(db, f"create:{current_user.id}", 20, 3600)
+    if db.query(Project).filter_by(user_id=current_user.id).count() >= get_settings().MAX_PROJECTS_PER_USER:
+        raise HTTPException(409, "Project quota reached")
+    # Legacy version grouping is replaced by explicit revision identity in M3.
     existing = db.query(Project).filter(Project.name == project_in.name, Project.user_id == current_user.id).order_by(Project.version.desc()).first()
     version = (existing.version + 1) if existing else 1
 
@@ -48,97 +53,31 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
+def editable_project(db, current_user, project_id):
+    project = require_project_access(db, current_user, project_id)
+    if project.status != "pending":
+        raise HTTPException(409, "Uploads are locked after analysis starts. Create a new revision to change the inputs.")
+    enforce_limit(db, f"upload:{current_user.id}", 30, 3600)
+    return project
+
+
 @router.post("/{project_id}/upload-srs")
 async def upload_srs(project_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    settings = get_settings()
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    content = await file.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail="File too large")
-        
-    ext = "txt"
-    if content.startswith(b"PK"):
-        ext = "docx"
-    elif content.startswith(b"%PDF"):
-        ext = "pdf"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file type. Only DOCX (zip) and PDF allowed.")
-        
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    safe_name = f"{uuid.uuid4()}.{ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, safe_name)
-    
-    with open(file_path, "wb") as f:
-        f.write(content)
-        
-    artifact = db.query(Artifact).filter(Artifact.project_id == project.id, Artifact.artifact_type == "srs").first()
-    if artifact:
-        if os.path.exists(artifact.file_path):
-            try: os.remove(artifact.file_path)
-            except: pass
-        artifact.file_format = ext
-        artifact.file_path = file_path
-        artifact.original_filename = file.filename
-    else:
-        artifact = Artifact(
-            project_id=project.id,
-            artifact_type="srs",
-            file_format=ext,
-            file_path=file_path,
-            original_filename=file.filename
-        )
-        db.add(artifact)
-    db.commit()
+    project = editable_project(db, current_user, project_id)
+    content, format, filename = await accept_upload(file)
+    store_artifact(db, project, "srs", content, format, filename)
     return {"message": "SRS uploaded"}
+
 
 @router.post("/{project_id}/upload-uml")
 async def upload_uml(project_id: int, uml_type: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    settings = get_settings()
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == current_user.id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if uml_type not in ["usecase", "class", "sequence"]:
-        raise HTTPException(status_code=400, detail="Invalid UML type")
-
-    content = await file.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail="File too large")
-        
-    client_ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
-    if client_ext not in ["puml", "txt", "plantuml"]:
-        raise HTTPException(status_code=400, detail="Invalid UML extension. Only .puml, .txt, .plantuml allowed.")
-
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    safe_name = f"{uuid.uuid4()}.{client_ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, safe_name)
-
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    atype = f"uml_{uml_type}"
-    artifact = db.query(Artifact).filter(Artifact.project_id == project.id, Artifact.artifact_type == atype).first()
-    if artifact:
-        if os.path.exists(artifact.file_path):
-            try: os.remove(artifact.file_path)
-            except: pass
-        artifact.file_format = client_ext
-        artifact.file_path = file_path
-        artifact.original_filename = file.filename
-    else:
-        artifact = Artifact(
-            project_id=project.id,
-            artifact_type=atype,
-            file_format=client_ext,
-            file_path=file_path,
-            original_filename=file.filename
-        )
-        db.add(artifact)
-    db.commit()
+    project = editable_project(db, current_user, project_id)
+    if uml_type not in {"usecase", "class", "sequence"}:
+        raise HTTPException(400, "Invalid UML type")
+    content, format, filename = await accept_upload(file, uml=True)
+    store_artifact(db, project, f"uml_{uml_type}", content, format, filename)
     return {"message": f"{uml_type} UML uploaded"}
+
 
 @router.post("/{project_id}/analyze")
 def analyze_project(project_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -149,7 +88,13 @@ def analyze_project(project_id: int, background_tasks: BackgroundTasks, db: Sess
     if project.status in ["analyzing", "done"]:
         raise HTTPException(status_code=400, detail="Project analysis already started or finished")
 
-    project.status = "analyzing"
+    if not db.query(Artifact).filter_by(project_id=project.id, artifact_type="srs").first():
+        raise HTTPException(409, "Upload an SRS before starting analysis")
+    enforce_limit(db, f"analysis:{current_user.id}", 10, 3600)
+    claimed = db.query(Project).filter(Project.id == project.id, Project.status != "analyzing").update({"status": "analyzing"})
+    if not claimed:
+        db.rollback()
+        raise HTTPException(409, "Analysis is already running")
     db.commit()
 
     background_tasks.add_task(run_analysis_pipeline, project.id)
@@ -164,7 +109,13 @@ def reanalyze_project(project_id: int, background_tasks: BackgroundTasks, db: Se
     if project.status == "analyzing":
         raise HTTPException(status_code=400, detail="Project analysis is currently running")
 
-    project.status = "analyzing"
+    if not db.query(Artifact).filter_by(project_id=project.id, artifact_type="srs").first():
+        raise HTTPException(409, "Upload an SRS before starting analysis")
+    enforce_limit(db, f"analysis:{current_user.id}", 10, 3600)
+    claimed = db.query(Project).filter(Project.id == project.id, Project.status != "analyzing").update({"status": "analyzing"})
+    if not claimed:
+        db.rollback()
+        raise HTTPException(409, "Analysis is already running")
     db.commit()
 
     background_tasks.add_task(run_analysis_pipeline, project.id)

@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 import yaml
 import os
@@ -19,10 +19,23 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
+    MAX_DOCUMENT_PAGES: int = 100
+    MAX_DOCUMENT_CHARACTERS: int = 1_000_000
+    MAX_EXPANDED_SIZE: int = 50 * 1024 * 1024
+    PARSER_TIMEOUT_SECONDS: int = 20
+    PARSER_MEMORY_MB: int = 512
+    MAX_PROJECTS_PER_USER: int = 100
+    APP_ENV: str = "development"
+    COOKIE_SECURE: bool = False
+    PUBLIC_URL: str = "http://localhost:5173"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@example.com"
+    MAIL_SINK_DIR: str = "./mail_sink"
 
-    class Config:
-        env_file = _env_file_path
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(env_file=_env_file_path, env_file_encoding="utf-8", extra="ignore")
 
 @lru_cache()
 def get_settings() -> Settings:

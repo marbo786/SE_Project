@@ -12,7 +12,6 @@ from app.pipeline.checks.traceability_checks import build_trace_links
 from app.pipeline.checks.srs_checks import run_all_srs_checks
 from app.pipeline.scoring import compute_scores
 
-@pytest.mark.xfail(reason="M1: owner checks missing on nested resources")
 def test_foreign_resources_are_private(client, headers, db_session):
     owner = User(name="Owner", email="owner@example.com", hashed_password="unused")
     db_session.add(owner)
@@ -27,12 +26,14 @@ def test_foreign_resources_are_private(client, headers, db_session):
     for path in [f"/projects/{project.id}", f"/findings/project/{project.id}", f"/traceability/project/{project.id}", f"/traceability/project/{project.id}/export"]:
         assert client.get(path, headers=headers).status_code == 404, path
     assert client.patch(f"/traceability/{link.id}", headers=headers, json={"status": "rejected"}).status_code == 404
+    assert client.get(f"/projects/{project.id}/compare?with_version=1", headers=headers).status_code == 404
+    for operation in ["analyze", "reanalyze"]:
+        assert client.post(f"/projects/{project.id}/{operation}", headers=headers).status_code == 404
+    assert client.post(f"/projects/{project.id}/upload-srs", headers=headers, files={"file": ("fake.docx", b"PKgarbage")}).status_code == 404
 
-@pytest.mark.xfail(reason="M1: credentials need API validation")
 def test_empty_credentials_rejected(client):
     assert client.post("/auth/register", json={"name": "", "email": "empty@example.com", "password": ""}).status_code == 422
 
-@pytest.mark.xfail(reason="M1: ZIP prefix alone is accepted")
 def test_invalid_docx_rejected(client, headers):
     pid = client.post("/projects/", headers=headers, json={"name": "Test"}).json()["id"]
     assert client.post(f"/projects/{pid}/upload-srs", headers=headers, files={"file": ("fake.docx", b"PKgarbage")}).status_code == 400

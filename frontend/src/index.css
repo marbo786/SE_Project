@@ -108,10 +108,10 @@
     color: #111214 !important;
     font-size: 11pt !important;
   }
-  .print\\:hidden {
+  .print\:hidden {
     display: none !important;
   }
-  .print\\:block {
+  .print\:block {
     display: block !important;
   }
   table {

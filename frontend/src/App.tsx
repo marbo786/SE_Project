@@ -6,10 +6,15 @@ import ProjectsPage from '@/pages/ProjectsPage'
 import NewProjectPage from '@/pages/NewProjectPage'
 import ReportPage from '@/pages/ReportPage'
 import Layout from '@/components/Layout'
+import { useAuth } from '@/lib/auth'
+import RecoveryPage from '@/pages/RecoveryPage'
+import AccountPage from '@/pages/AccountPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('token')
-  if (!token) return <Navigate to="/login" replace />
+  const { isAuthenticated, loading, error, refresh } = useAuth()
+  if (loading) return <main className="p-8" role="status">Checking your session…</main>
+  if (error) return <main className="p-8" role="alert">{error} <button onClick={refresh}>Try again</button></main>
+  if (!isAuthenticated) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
@@ -18,6 +23,10 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<RecoveryPage mode="request" />} />
+      <Route path="/reset-password" element={<RecoveryPage mode="reset" />} />
+      <Route path="/verify-email" element={<RecoveryPage mode="verify" />} />
+      <Route path="/account" element={<ProtectedRoute><Layout><AccountPage /></Layout></ProtectedRoute>} />
       
       <Route path="/" element={
         <ProtectedRoute>

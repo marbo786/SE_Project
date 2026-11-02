@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
-import { authApi } from '@/lib/api'
+import { authApi, apiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,10 +22,10 @@ export default function LoginPage() {
     setError('')
     try {
       const res = await authApi.login({ email, password })
-      login(res.data.access_token, res.data.user)
+      login(res.data.user)
       navigate('/dashboard')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Authentication failed. Please verify credentials.')
+      setError(apiError(err, 'Authentication failed. Please verify credentials.'))
     } finally {
       setLoading(false)
     }
@@ -110,6 +110,7 @@ export default function LoginPage() {
             Authenticate
           </Button>
         </form>
+        <Link className="block text-sm text-blue-300 underline" to="/forgot-password">Forgot your password?</Link>
 
         <div className="pt-2 border-t border-[#303136] text-center text-xs text-[#777981]">
           <span>Unregistered operator? </span>

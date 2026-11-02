@@ -22,7 +22,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture
 def db_session(tmp_path, monkeypatch):
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
     from app.main import app
@@ -30,10 +30,15 @@ def db_session(tmp_path, monkeypatch):
     from app.core.config import get_settings
     from app.pipeline import analyzer
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(connection, _):
+        connection.execute("PRAGMA foreign_keys=ON")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr(analyzer, "SessionLocal", factory)
     monkeypatch.setattr(get_settings(), "UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(get_settings(), "MAIL_SINK_DIR", str(tmp_path / "mail"))
+    monkeypatch.setattr(get_settings(), "SMTP_HOST", "")
     def override_db():
         with factory() as session:
             yield session

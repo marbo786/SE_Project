@@ -1,85 +1,51 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import os
-import sys
-
-from .core.database import engine, Base
+from sqlalchemy import text
+from .core.database import engine
 from .core.config import get_settings
+from .core.request_limits import RequestSizeLimit
 from .routers import auth, projects, findings, traceability, dashboard
-
-# Import all models so SQLAlchemy can create their tables
-from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score
+from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score, session
 
 settings = get_settings()
-is_testing = (
-    os.environ.get("TESTING") == "true"
-    or os.environ.get("PYTEST_CURRENT_TEST") is not None
-    or "pytest" in sys.modules
-)
-if not is_testing and (settings.SECRET_KEY == "changeme" or "changeme" in settings.SECRET_KEY):
-    print("FATAL ERROR: SECRET_KEY cannot be the default placeholder 'changeme'.")
-    sys.exit(1)
-
-from alembic import command
-from alembic.config import Config
-import os
-alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
-alembic_cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "alembic"))
-with engine.begin() as connection:
-    alembic_cfg.attributes["connection"] = connection
-    command.upgrade(alembic_cfg, "head")
-
-app = FastAPI(
-    title="SRS Reviewer API",
-    description="Automated SRS quality analysis with LLM-assisted checks and traceability",
-    version="1.0.0"
-)
-
-# CORS configuration - adjust origins for production
-origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
-@app.on_event("startup")
-def startup_event():
-    from .core.database import SessionLocal
-    from .models.project import Project
-    from .models.finding import Finding
-    db = SessionLocal()
-    try:
-        stuck_projects = db.query(Project).filter(Project.status == "analyzing").all()
-        for p in stuck_projects:
-            p.status = "error"
-            # Add an error finding so user knows what happened
-            f = Finding(
-                project_id=p.id,
-                rule_id="SYS-ERR",
-                severity="critical",
-                explanation="Analysis was interrupted (server restarted). Please try re-analyzing.",
-                finding_type="system"
-            )
-            db.add(f)
-        db.commit()
-    finally:
-        db.close()
+@asynccontextmanager
+async def lifespan(app):
+    if settings.APP_ENV == "production":
+        if not settings.COOKIE_SECURE or not settings.PUBLIC_URL.startswith("https://"):
+            raise RuntimeError("Production requires HTTPS and COOKIE_SECURE=true")
+        if not settings.SMTP_HOST:
+            raise RuntimeError("Configure SMTP_HOST for production account recovery")
+    yield
 
-# Include routers
-app.include_router(auth.router)
-app.include_router(projects.router)
-app.include_router(findings.router)
-app.include_router(traceability.router)
-app.include_router(dashboard.router)
+
+app = FastAPI(title="SRS Reviewer API", version="1.1.0", lifespan=lifespan)
+app.add_middleware(RequestSizeLimit, maximum=settings.MAX_UPLOAD_SIZE + 1024 * 1024)
+app.add_middleware(CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
+    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"])
+for router in [auth.router, projects.router, findings.router, traceability.router, dashboard.router]:
+    app.include_router(router)
+
 
 @app.get("/", tags=["health"])
 def root():
-    return {"status": "ok", "service": "SRS Reviewer API", "version": "1.0.0"}
+    return {"status": "ok", "service": "SRS Reviewer API", "version": "1.1.0"}
+
 
 @app.get("/health", tags=["health"])
 def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/ready", tags=["health"])
+def readiness():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1 FROM auth_sessions LIMIT 1"))
+    except Exception:
+        raise HTTPException(503, "Database is unavailable or migrations are pending")
+    return {"status": "ready"}

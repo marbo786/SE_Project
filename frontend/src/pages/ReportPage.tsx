@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { projectsApi, findingsApi, traceabilityApi, API_URL } from '@/lib/api'
+import { projectsApi, findingsApi, traceabilityApi, apiError } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/input'
@@ -225,6 +225,7 @@ function FindingItem({ finding }: { finding: Finding }) {
 
 /* ---------- Main Component ---------- */
 export default function ReportPage() {
+  const [actionError, setActionError] = useState('')
   const { id } = useParams()
   const projectId = Number(id)
 
@@ -260,32 +261,24 @@ export default function ReportPage() {
 
   const updateLinkStatus = async (linkId: number, status: string) => {
     try {
-      const token = localStorage.getItem('token')
-      await fetch(`${API_URL}/traceability/${linkId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
-      })
+      await traceabilityApi.update(linkId, status)
       fetchTraceLinks()
     } catch (e) {
-      console.error(e)
+      setActionError(apiError(e))
     }
   }
 
-  const downloadTraceability = () => {
-    const token = localStorage.getItem('token')
-    fetch(`${API_URL}/traceability/project/${projectId}/export`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.blob())
-      .then(blob => {
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `traceability_${projectId}.csv`
-        a.click()
-        window.URL.revokeObjectURL(url)
-      })
+  const downloadTraceability = async () => {
+    setActionError('')
+    try {
+      const response = await traceabilityApi.export(Number(projectId))
+      const url = window.URL.createObjectURL(response.data)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `traceability_${projectId}.csv`
+      anchor.click()
+      window.URL.revokeObjectURL(url)
+    } catch (error) { setActionError(apiError(error, 'Export failed. Please try again.')) }
   }
 
   // Filtered findings
@@ -343,6 +336,7 @@ export default function ReportPage() {
 
   return (
     <div className="space-y-4">
+      {actionError && <p role="alert" className="p-3 border border-red-400 text-red-300">{actionError}</p>}
       {/* Breadcrumb path */}
       <Breadcrumbs
         items={[

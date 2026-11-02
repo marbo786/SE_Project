@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/lib/auth'
 import { dashboardApi, projectsApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,13 +31,7 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<ProjectItem[]>([])
   const [loading, setLoading] = useState<boolean>(true)
 
-  const user = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || '{}')
-    } catch {
-      return {}
-    }
-  })()
+  const { user } = useAuth()
 
   useEffect(() => {
     let isMounted = true
@@ -65,7 +60,7 @@ export default function DashboardPage() {
       {/* Header */}
       <PageHeader
         title="Inspection Dashboard"
-        description={user.name ? `Operator: ${user.name} • Active specification review telemetry` : "Active specification review telemetry"}
+        description={user?.name ? `Operator: ${user?.name} • Active specification review telemetry` : "Active specification review telemetry"}
       >
         <Link to="/projects/new">
           <Button>
