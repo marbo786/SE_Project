@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "codex/**" ]
   pull_request:
     branches: [ "main" ]
 
@@ -19,8 +19,7 @@ jobs:
       run: |
         cd backend
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio
+        pip install -r requirements-dev.txt
     - name: Run Pytest
       env:
         SECRET_KEY: test_secret_key_ci_environment_32chars
@@ -38,11 +37,11 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18'
+        node-version: '22'
     - name: Install dependencies
       run: |
         cd frontend
-        npm install
+        npm ci
     - name: Build
       run: |
         cd frontend

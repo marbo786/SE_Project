@@ -1,6 +1,14 @@
 # Environments
 .env
 venv/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+test-results/
+playwright-report/
+*.tsbuildinfo
 env/
 __pycache__/
 *.pyc

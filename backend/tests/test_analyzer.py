@@ -1,103 +1,38 @@
-import os
-import sys
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-import asyncio
-
-_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _backend_dir not in sys.path:
-    sys.path.insert(0, _backend_dir)
-
-import app.main  # Import EVERYTHING so Base has all models
-
-from app.core.database import Base
 from app.models.project import Project
+from app.models.user import User
 from app.models.artifact import Artifact
-from app.pipeline.analyzer import run_analysis_pipeline
-from app.llm.base import BaseLLMProvider, LLMResponse
+from app.pipeline import analyzer
 from app.llm import engine
+from app.llm.base import BaseLLMProvider, LLMResponse
 
-# Setup test DB
-from sqlalchemy.pool import StaticPool
-engine_test = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-Base.metadata.create_all(bind=engine_test)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_test)
+class SuccessProvider(BaseLLMProvider):
+    provider_name = "mock_success"
+    default_model = "mock"
+    async def complete(self, *args, **kwargs):
+        return LLMResponse('{"results": [{"requirement_id": "FR-1", "testable": true}], "conflicts": []}', 10, 10, 10, self.provider_name, self.default_model)
 
-import app.core.database
-app.core.database.SessionLocal = TestingSessionLocal
-import app.pipeline.analyzer
-app.pipeline.analyzer.SessionLocal = TestingSessionLocal
+class FailProvider(SuccessProvider):
+    async def complete(self, *args, **kwargs):
+        raise RuntimeError("Simulated provider outage")
 
-class MockSuccessProvider(BaseLLMProvider):
-    @property
-    def provider_name(self) -> str: return "mock_success"
-    @property
-    def default_model(self) -> str: return "mock"
-    async def complete(self, sys_prompt, usr_prompt, model=None):
-        content = '{"results": [{"requirement_id": "FR-1", "testable": true}], "conflicts": [], "rewrites": []}'
-        return LLMResponse(content=content, prompt_tokens=10, completion_tokens=10, latency_ms=10, provider="mock", model="mock")
-
-class MockFailProvider(BaseLLMProvider):
-    @property
-    def provider_name(self) -> str: return "mock_fail"
-    @property
-    def default_model(self) -> str: return "mock"
-    async def complete(self, sys_prompt, usr_prompt, model=None):
-        raise RuntimeError("Network Error")
-
-@pytest.fixture(autouse=True)
-def clear_cache():
-    pass
-
-def create_mock_project(db):
-    project = Project(user_id=1, name="Test", version=1, status="pending")
+@pytest.mark.parametrize("provider,expected", [(SuccessProvider, "done"), (FailProvider, "partial")])
+async def test_analysis_terminal_state(db_session, tmp_path, monkeypatch, provider, expected):
+    db = db_session
+    user = User(name="Test", email="test@example.com", hashed_password="unused")
+    db.add(user)
+    db.flush()
+    project = Project(user_id=user.id, name="Test", version=1, status="pending")
     db.add(project)
+    db.flush()
+    path = tmp_path / "sample.docx"
+    from docx import Document
+    doc = Document()
+    doc.add_paragraph("FR-1 The system shall store a record.")
+    doc.save(path)
+    db.add(Artifact(project_id=project.id, artifact_type="srs", file_format="docx", file_path=str(path), original_filename="sample.docx"))
     db.commit()
+    monkeypatch.setattr(engine, "get_provider", provider)
+    await analyzer.run_analysis_pipeline(project.id)
     db.refresh(project)
-    
-    import uuid
-    path = f"test_{uuid.uuid4()}.docx"
-    with open(path, "wb") as f:
-        f.write(b"PK\x03\x04") # dummy docx magic
-    
-    art = Artifact(project_id=project.id, artifact_type="srs", file_format="docx", file_path=path, original_filename="test.docx")
-    db.add(art)
-    db.commit()
-    
-    import app.pipeline.analyzer
-    app.pipeline.analyzer.parse_srs = lambda *args: {"sections": ["1. Intro"], "requirements": [{"id": "FR-1", "text": "System shall do X."}]}
-    
-    return project, path
-
-@pytest.mark.asyncio
-async def test_analysis_reaches_done(monkeypatch):
-    monkeypatch.setattr(engine, "get_provider", lambda: MockSuccessProvider())
-    db = TestingSessionLocal()
-    project, path = create_mock_project(db)
-    
-    await run_analysis_pipeline(project.id)
-    
-    db.refresh(project)
-    assert project.status == "done"
-    
-    if os.path.exists(path):
-        os.remove(path)
-    db.close()
-
-@pytest.mark.asyncio
-async def test_analysis_reaches_partial(monkeypatch):
-    monkeypatch.setattr(engine, "get_provider", lambda: MockFailProvider())
-    db = TestingSessionLocal()
-    project, path = create_mock_project(db)
-    
-    await run_analysis_pipeline(project.id)
-    
-    db.refresh(project)
-    assert project.status == "partial"
-    
-    if os.path.exists(path):
-        os.remove(path)
-    db.close()
-
-
+    assert project.status == expected
