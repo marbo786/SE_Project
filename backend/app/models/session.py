@@ -1,4 +1,4 @@
-from datetime import datetime
+from ..core.time import utcnow
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
 from ..core.database import Base
 
@@ -10,7 +10,7 @@ class AuthSession(Base):
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
     csrf_hash = Column(String(64), nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     revoked = Column(Boolean, default=False, nullable=False)
 
 

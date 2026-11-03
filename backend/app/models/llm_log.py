@@ -1,6 +1,6 @@
-﻿from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Text
+from ..core.time import utcnow
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Text
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from ..core.database import Base
 
 class LLMLog(Base):
@@ -16,7 +16,7 @@ class LLMLog(Base):
     cache_hit = Column(String, default="false")
     prompt_hash = Column(String, nullable=True)
     response_text = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     project = relationship("Project", back_populates="llm_logs")
 

@@ -1,6 +1,6 @@
+from ..core.time import utcnow
 from sqlalchemy import Column, Integer, Float, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from ..core.database import Base
 
 class QualityScore(Base):
@@ -13,6 +13,6 @@ class QualityScore(Base):
     traceability_score = Column(Float, nullable=True)
     overall_score = Column(Float, nullable=True)
     details = Column(JSON, nullable=True)
-    computed_at = Column(DateTime, default=datetime.utcnow)
+    computed_at = Column(DateTime, default=utcnow)
 
     project = relationship("Project", back_populates="quality_score")

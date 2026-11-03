@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+from ..core.time import utcnow
+from datetime import timedelta
 import secrets
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -67,7 +68,7 @@ def issue_challenge(db, user, purpose):
     token = secrets.token_urlsafe(48)
     db.query(AuthChallenge).filter_by(user_id=user.id, purpose=purpose, used=False).update({"used": True})
     challenge = AuthChallenge(user_id=user.id, token_hash=token_digest(token), purpose=purpose,
-        expires_at=datetime.utcnow() + timedelta(minutes=30), used=False)
+        expires_at=utcnow() + timedelta(minutes=30), used=False)
     db.add(challenge)
     db.commit()
     try:
@@ -94,7 +95,7 @@ def request_verification(request: Request, db: Session = Depends(get_db), user: 
 
 def consume_challenge(db, token, purpose):
     challenge = db.query(AuthChallenge).filter_by(token_hash=token_digest(token), purpose=purpose).first()
-    if not challenge or challenge.used or challenge.expires_at <= datetime.utcnow():
+    if not challenge or challenge.used or challenge.expires_at <= utcnow():
         raise HTTPException(400, "This link is invalid or has expired")
     claimed = db.execute(update(AuthChallenge).where(AuthChallenge.id == challenge.id, AuthChallenge.used.is_(False)).values(used=True)).rowcount
     if not claimed:

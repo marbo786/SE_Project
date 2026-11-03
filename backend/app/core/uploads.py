@@ -127,32 +127,62 @@ def validate_isolated(content, filename, *, extract=False):
         raise HTTPException(400, "Document validation took too long. Reduce the document size or complexity")
 
 
-def store_artifact(db, project, kind, content, format, filename):
+def remove_unreferenced_file(db, file_path):
+    root = Path(get_settings().UPLOAD_DIR).resolve()
+    path = Path(file_path).resolve()
+    if path.parent == root and not db.query(Artifact).filter_by(file_path=str(path)).first():
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass  # Retention maintenance retries orphan cleanup.
+
+
+def store_artifact(db, project, kind, content, format, filename, *, revision=None,
+                   expected_version=None, replace_id=None, append=False, commit=True):
+    import hashlib
+    from ..services.history import ensure_revision, edit_draft, audit
+    from ..models.history import Requirement, UMLElement
+    revision = revision or ensure_revision(db, project)
+    expected_version = revision.edit_version if expected_version is None else expected_version
+    edit_draft(db, project, revision, expected_version)
+    artifacts = db.query(Artifact).filter_by(revision_id=revision.id)
+    artifact = artifacts.filter_by(id=replace_id).first() if replace_id else None
+    if replace_id and (not artifact or artifact.artifact_type != kind):
+        raise HTTPException(404, "Artifact not found in this draft and type")
+    if not append and not replace_id:
+        artifact = artifacts.filter_by(artifact_type=kind).first()
+    if not artifact and kind == "srs" and artifacts.filter_by(artifact_type="srs").first():
+        raise HTTPException(409, "This draft already has an SRS. Select it explicitly for replacement.")
+    if not artifact and artifacts.count() >= 20:
+        raise HTTPException(409, "A revision supports up to 20 input files")
     root = Path(get_settings().UPLOAD_DIR).resolve()
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{uuid.uuid4().hex}.{format}"
-    from ..models.project import Project
-    claimed = db.query(Project).filter_by(id=project.id, status="pending").update({"status": "pending"})
-    if not claimed:
-        db.rollback()
-        raise HTTPException(409, "Analysis has started; the upload was not saved")
-    artifact = db.query(Artifact).filter_by(project_id=project.id, artifact_type=kind).first()
-    old = Path(artifact.file_path).resolve() if artifact else None
+    old = artifact.file_path if artifact else None
     try:
         with path.open("xb") as output:
             output.write(content)
+        # All derived draft data must be re-extracted after a source change.
+        db.query(Requirement).filter_by(revision_id=revision.id).delete()
+        db.query(UMLElement).filter_by(revision_id=revision.id).delete()
+        revision.canonical_inputs, revision.extraction_confirmed = None, False
         if not artifact:
-            artifact = Artifact(project_id=project.id, artifact_type=kind)
+            artifact = Artifact(project_id=project.id, revision_id=revision.id, artifact_type=kind)
             db.add(artifact)
+        # Replacing bytes creates new lineage; edits to extracted requirements use
+        # explicit occurrence lineage instead of guessing from authored IDs.
+        artifact.lineage_key = uuid.uuid4().hex
+        artifact.content_hash, artifact.size_bytes = hashlib.sha256(content).hexdigest(), len(content)
         artifact.file_path, artifact.file_format = str(path), format
         artifact.original_filename, artifact.extracted_content = filename, None
-        db.commit()
+        db.flush()
+        audit(db, project, project.user_id, "artifact_uploaded", revision_id=revision.id, artifact_id=artifact.id, sha256=artifact.content_hash)
+        if commit:
+            db.commit()
     except Exception:
         db.rollback()
         path.unlink(missing_ok=True)
         raise
-    if old and old != path and old.parent == root:
-        try:
-            old.unlink(missing_ok=True)
-        except OSError:
-            pass  # An orphan is safe; never lose the newly committed upload.
+    if commit and old:
+        remove_unreferenced_file(db, old)
+    return artifact

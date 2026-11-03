@@ -1,6 +1,6 @@
+from ..core.time import utcnow
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Enum, JSON, Float, Boolean
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from ..core.database import Base
 
 class TraceLink(Base):
@@ -19,6 +19,6 @@ class TraceLink(Base):
     evidence = Column(JSON, nullable=True)
     is_stale = Column(Boolean, default=False, nullable=False)
     status = Column(Enum("suggested", "confirmed", "rejected", name="link_status"), default="suggested")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     project = relationship("Project", back_populates="trace_links")

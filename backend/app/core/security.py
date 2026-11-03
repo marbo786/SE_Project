@@ -1,5 +1,6 @@
+from .time import utcnow
 """Passwords and opaque, revocable sessions. Raw tokens are never persisted."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 import hashlib
 import secrets
 from argon2 import PasswordHasher
@@ -33,7 +34,7 @@ def create_session(db, user, response: Response):
     token, csrf = secrets.token_urlsafe(48), secrets.token_urlsafe(32)
     lifetime = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     session = AuthSession(user_id=user.id, token_hash=token_digest(token), csrf_hash=token_digest(csrf),
-        expires_at=datetime.utcnow() + timedelta(seconds=lifetime))
+        expires_at=utcnow() + timedelta(seconds=lifetime))
     db.add(session)
     db.commit()
     for name, value, httponly in [("srs_session", token, True), ("srs_csrf", csrf, False)]:

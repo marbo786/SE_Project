@@ -36,6 +36,11 @@ class ProjectOut(BaseModel):
     analysis_profile: str
     analysis_mode: str
     analysis_error: Optional[str] = None
+    current_revision_id: Optional[int] = None
+    latest_run_id: Optional[str] = None
+    published_run_id: Optional[str] = None
+    archived_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
     quality_score: Optional[ScoreOut] = None
     created_at: datetime
 

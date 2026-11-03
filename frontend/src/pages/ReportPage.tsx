@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams, Link } from 'react-router-dom'
-import { projectsApi, findingsApi, traceabilityApi, apiError } from '@/lib/api'
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { projectsApi, historyApi, apiError, RunSummary } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/input'
@@ -44,6 +44,9 @@ interface Project {
   analysis_profile: string
   analysis_mode: string
   analysis_error?: string
+  current_revision_id: number
+  published_run_id?: string
+  latest_run_id?: string
   quality_score?: {
     overall_score: number | null
     computed_at: string
@@ -90,6 +93,9 @@ interface CompareData {
   resolved_findings?: Finding[]
   new_findings?: Finding[]
   persistent_findings?: Finding[]
+  scores_comparable?: boolean
+  comparability_note?: string
+  requirements?: { added: unknown[]; deleted: unknown[]; changed: unknown[] }
 }
 
 /* ---------- Sub-components ---------- */
@@ -251,31 +257,53 @@ export default function ReportPage() {
   const [actionError, setActionError] = useState('')
   const { id } = useParams()
   const projectId = Number(id)
+  const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
+  const selectedRun = params.get('run')
 
   const queryClient = useQueryClient()
   const report = useQuery({
-    queryKey: ['project-report', projectId],
+    queryKey: ['project-report', projectId, selectedRun],
     enabled: Number.isInteger(projectId) && projectId > 0,
     queryFn: async () => {
-      const [project, findings, links] = await Promise.all([projectsApi.get(projectId), findingsApi.getByProject(projectId), traceabilityApi.getByProject(projectId)])
-      return { project: project.data as Project, findings: findings.data as Finding[], links: links.data as TraceLink[] }
+      const [response, history] = await Promise.all([projectsApi.get(projectId), historyApi.runs(projectId)])
+      const live = response.data as Project
+      const runId = selectedRun || live.published_run_id || live.latest_run_id
+      const run = runId ? (await historyApi.run(runId)).data : null
+      if (run && run.project_id !== projectId) throw new Error('Run does not belong to this project')
+      const snapshot = run?.has_report ? (await historyApi.report(run.id)).data : null
+      const revision = run ? (await historyApi.revision(projectId, run.revision_id)).data : null
+      const reviews = (snapshot?.reviews || []) as { id: number; trace_id?: number; status: string }[]
+      const links = ((snapshot?.trace_links || []) as TraceLink[]).map(link => ({ ...link, status: reviews.find(review => review.trace_id === link.id)?.status || link.status }))
+      return { live, runs: history.data.items, run, reviews,
+        project: { ...live, version: revision?.number || live.version, quality_score: snapshot?.score,
+          analysis_mode: revision?.analysis_mode || live.analysis_mode,
+          status: run ? ({ completed: 'done', failed: 'error', queued: 'analyzing', running: 'analyzing' }[run.status] || run.status) : live.status,
+          analysis_error: run?.error_message || undefined } as Project,
+        findings: (snapshot?.findings || []) as Finding[], links }
     },
-    refetchInterval: query => query.state.data?.project.status === 'analyzing' ? 1500 : false,
+    refetchInterval: query => query.state.data?.live.status === 'analyzing' ? 1500 : false,
   })
   const project = report.data?.project ?? null
   const findings = report.data?.findings ?? []
   const traceLinks = report.data?.links ?? []
   const loading = report.isPending
   const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'traceability' | 'compare'>('findings')
+  const [previousRun, setPreviousRun] = useState('')
   const comparison = useQuery({
-    queryKey: ['project-comparison', projectId, project?.version, project?.status],
-    enabled: !!project && project.version > 1 && activeTab === 'compare',
-    queryFn: async () => (await projectsApi.compare(projectId, project!.version - 1)).data as CompareData,
+    queryKey: ['project-comparison', projectId, report.data?.run?.id, previousRun],
+    enabled: !!report.data?.run && !!previousRun && activeTab === 'compare',
+    queryFn: async () => (await historyApi.compare(report.data!.run!.id, previousRun)).data as CompareData,
   })
   const compareData = comparison.data
   const rerun = useMutation({
-    mutationFn: () => project?.status === 'pending' ? projectsApi.analyze(projectId) : projectsApi.reanalyze(projectId),
-    onSuccess: () => { setActionError(''); void queryClient.invalidateQueries({ queryKey: ['project-report', projectId] }) },
+    mutationFn: async () => {
+      const live = report.data!.live
+      const revision = (await historyApi.revision(projectId, live.current_revision_id)).data
+      if (revision.state === 'draft') { navigate(`/projects/${projectId}/revisions/${revision.id}`); return null }
+      return historyApi.start(projectId, revision, crypto.randomUUID())
+    },
+    onSuccess: response => { setActionError(''); if (response) setParams({ run: response.data.id }); void queryClient.invalidateQueries({ queryKey: ['project-report', projectId] }) },
     onError: error => setActionError(apiError(error, 'Analysis could not start.')),
   })
 
@@ -286,7 +314,9 @@ export default function ReportPage() {
 
   const updateLinkStatus = async (linkId: number, status: string) => {
     try {
-      await traceabilityApi.update(linkId, status)
+      if (!report.data?.run) return
+      await historyApi.decision(report.data.run.id, { target_type: 'trace', target_id: linkId, status,
+        expected_decision_id: report.data.reviews.find(review => review.trace_id === linkId)?.id || 0 })
       await queryClient.invalidateQueries({ queryKey: ['project-report', projectId] })
     } catch (e) {
       setActionError(apiError(e))
@@ -296,7 +326,8 @@ export default function ReportPage() {
   const downloadTraceability = async () => {
     setActionError('')
     try {
-      const response = await traceabilityApi.export(Number(projectId))
+      if (!report.data?.run?.has_report) return
+      const response = await historyApi.exportTrace(report.data.run.id)
       const url = window.URL.createObjectURL(response.data)
       const anchor = document.createElement('a')
       anchor.href = url
@@ -363,11 +394,18 @@ export default function ReportPage() {
 
   return (
     <div className="space-y-4">
+      <section aria-label="Analysis history" className="border border-[#51535c] rounded p-4 flex flex-wrap gap-4 items-end print:hidden">
+        <label className="flex-1 min-w-0 text-sm space-y-2"><span>Analysis history</span><select className="block w-full rounded border border-[#51535c] bg-[#17181B] p-2" value={selectedRun || ''} onChange={event => { setParams(event.target.value ? { run: event.target.value } : {}); setPreviousRun('') }}>
+          <option value="">Published report</option>{report.data?.runs.map((run: RunSummary) => <option key={run.id} value={run.id}>{formatDate(run.created_at)} — {run.status} ({run.id.slice(0, 8)})</option>)}
+        </select></label>
+        <Button variant="outline" disabled={report.data?.live.status === 'analyzing'} onClick={async () => { try { const draft = await historyApi.draft(projectId, report.data?.run?.revision_id); navigate(`/projects/${projectId}/revisions/${draft.data.id}`) } catch (error) { setActionError(apiError(error)) } }}>Edit a new draft</Button>
+      </section>
+      {report.data?.live.latest_run_id && report.data.live.latest_run_id !== report.data.run?.id && <p role="status" className="p-3 border border-amber-300 rounded">Showing a preserved report. A newer analysis attempt is available in the history menu. <button className="underline" onClick={() => setParams({ run: report.data!.live.latest_run_id! })}>View latest attempt</button></p>}
       {actionError && <p role="alert" className="p-3 border border-red-400 text-red-300">{actionError}</p>}
       {report.isError && <p role="alert">Unable to refresh. Showing the last loaded report. <button onClick={() => report.refetch()}>Retry</button></p>}
       {comparison.isError && activeTab === 'compare' && <p role="alert">{apiError(comparison.error, 'Comparison is unavailable.')} <button onClick={() => comparison.refetch()}>Retry</button></p>}
       {project?.status === 'analyzing' && <p role="status" aria-live="polite" className="p-4 border border-blue-400 rounded">Analysis is running. This report updates automatically. Any results below are from the previous completed analysis.</p>}
-      {project?.status === 'pending' && <p role="status" className="p-4 border rounded">This project has not been analyzed yet.</p>}
+      {report.data?.live.status === 'pending' && <p role="status" className="p-4 border rounded">A draft is ready to edit. <Link className="underline" to={`/projects/${projectId}/revisions/${report.data.live.current_revision_id}`}>Continue draft</Link></p>}
       {project?.status === 'partial' && <p role="status" className="p-4 border border-amber-400 rounded">Some inputs or requested checks could not be fully evaluated. Review the warnings below; no final grade is assigned.</p>}
       {project?.analysis_error && <p role="alert" className="p-4 border border-red-400 rounded">{project.analysis_error}</p>}
       {project?.quality_score && <section aria-label="Quality score" className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-3">
@@ -416,14 +454,14 @@ export default function ReportPage() {
           </div>
 
           <div className="flex items-center gap-1.5 print:hidden">
-            <Button size="sm" disabled={project.status === 'analyzing' || rerun.isPending} onClick={() => rerun.mutate()}>
+            <Button size="sm" disabled={report.data?.live.status === 'analyzing' || rerun.isPending} onClick={() => rerun.mutate()}>
               {project.status === 'analyzing' ? 'Analyzing…' : rerun.isPending ? 'Starting…' : project.status === 'pending' ? 'Analyze' : 'Run again'}
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()}>
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Print
             </Button>
-            <Button variant="outline" size="sm" onClick={downloadTraceability}>
+            <Button variant="outline" size="sm" disabled={!report.data?.run?.has_report} onClick={downloadTraceability}>
               <Download className="mr-1.5 h-3.5 w-3.5" />
               Traceability CSV
             </Button>
@@ -697,11 +735,14 @@ export default function ReportPage() {
       {/* ===== VERSION DIFF TAB ===== */}
       {activeTab === 'compare' && (
         <div className="space-y-4">
+          <label className="block text-sm space-y-2"><span>Compare the selected report with</span><select className="block rounded border border-[#51535c] bg-[#17181B] p-2 w-full" value={previousRun} onChange={event => setPreviousRun(event.target.value)}><option value="">Choose an earlier report</option>{report.data?.runs.filter(run => run.has_report && run.id !== report.data?.run?.id).map(run => <option key={run.id} value={run.id}>{formatDate(run.created_at)} — {run.status} ({run.id.slice(0, 8)})</option>)}</select></label>
+          {compareData?.comparability_note && <p className="p-3 border border-amber-300 rounded">{compareData.comparability_note}</p>}
+          {compareData?.requirements && <p className="text-sm">Requirements: {compareData.requirements.added.length} added, {compareData.requirements.changed.length} changed, {compareData.requirements.deleted.length} removed.</p>}
           {!compareData ? (
             <EmptyState
               icon={GitCompare}
               title="No previous version comparison"
-              description="Upload a subsequent revision of this specification with identical project name to calculate regression and resolution diffs."
+              description="Create a draft in this project, make your corrections, and analyze it. Both reports remain available for comparison."
               className="border rounded bg-[#1D1E22]"
             />
           ) : (
@@ -713,7 +754,7 @@ export default function ReportPage() {
                     Resolved Defects ({compareData.resolved_findings?.length || 0})
                   </span>
                   <span className="text-[10px] font-mono text-[#777981]">
-                    Fixed compared to v{(project?.version || 2) - 1}
+                    Absent from the selected report
                   </span>
                 </div>
                 <div className="p-3 text-xs">
@@ -741,7 +782,7 @@ export default function ReportPage() {
                     Newly Introduced Defects ({compareData.new_findings?.length || 0})
                   </span>
                   <span className="text-[10px] font-mono text-[#777981]">
-                    Regressions introduced in v{project?.version}
+                    Present in the selected report
                   </span>
                 </div>
                 <div className="p-3 text-xs">

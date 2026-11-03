@@ -9,8 +9,8 @@ from alembic.runtime.migration import MigrationContext
 from .core.database import engine
 from .core.config import get_settings
 from .core.request_limits import RequestSizeLimit
-from .routers import auth, projects, findings, traceability, dashboard
-from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score, session
+from .routers import auth, projects, findings, traceability, dashboard, history as history_routes
+from .models import user, project, artifact, finding, traceability as trace_model, llm_log, score, session, history
 
 settings = get_settings()
 
@@ -30,8 +30,8 @@ app.add_middleware(RequestSizeLimit, maximum=settings.MAX_UPLOAD_SIZE + 1024 * 1
 app.add_middleware(CORSMiddleware,
     allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
     allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"])
-for router in [auth.router, projects.router, findings.router, traceability.router, dashboard.router]:
+    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token", "If-Match", "Idempotency-Key"])
+for router in [auth.router, projects.router, findings.router, traceability.router, dashboard.router, history_routes.router]:
     app.include_router(router)
 
 

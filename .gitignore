@@ -25,6 +25,7 @@ dist/
 uploads/
 backend/uploads/
 mail_sink/
+backups/
 
 # IDEs
 .vscode/

@@ -1,4 +1,4 @@
-from datetime import datetime
+from .time import utcnow
 import secrets
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -26,7 +26,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not token or len(token) > 256:
         raise HTTPException(401, "Sign in to continue")
     session = db.query(AuthSession).filter(AuthSession.token_hash == token_digest(token),
-        AuthSession.revoked.is_(False), AuthSession.expires_at > datetime.utcnow()).first()
+        AuthSession.revoked.is_(False), AuthSession.expires_at > utcnow()).first()
     if not session:
         raise HTTPException(401, "Your session expired. Please sign in again.")
     if not bearer and request.method not in {"GET", "HEAD", "OPTIONS"}:
@@ -41,8 +41,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-def require_project_access(db: Session, user: User, project_id: int) -> Project:
-    project = db.query(Project).filter(Project.id == project_id, Project.user_id == user.id).first()
+def require_project_access(db: Session, user: User, project_id: int, *, include_deleted=False) -> Project:
+    query = db.query(Project).filter(Project.id == project_id, Project.user_id == user.id)
+    if not include_deleted:
+        query = query.filter(Project.deleted_at.is_(None))
+    project = query.first()
     if not project:
         raise HTTPException(404, "Project not found")
     return project

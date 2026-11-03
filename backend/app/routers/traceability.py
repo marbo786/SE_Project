@@ -24,13 +24,24 @@ def update_trace_link(link_id: int, update_data: TraceLinkUpdate, db: Session = 
     link = db.query(TraceLink).filter(TraceLink.id == link_id).first()
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
-    require_project_access(db, current_user, link.project_id)
+    project = require_project_access(db, current_user, link.project_id)
+    from ..services.history import require_writable, lock_project
+    require_writable(project)
+    lock_project(db, project)
     if link.is_stale:
         raise HTTPException(409, "This link refers to older or ambiguous inputs and must be recreated")
     
     if update_data.status not in ["suggested", "confirmed", "rejected"]:
         raise HTTPException(status_code=400, detail="Invalid status")
 
+    if project.published_run_id:
+        from ..models.history import RunTraceLink, ReviewDecision
+        target = db.query(RunTraceLink).filter_by(run_id=project.published_run_id,
+            source_type=link.source_type, source_id=link.source_id,
+            target_type=link.target_type, target_id=link.target_id).first()
+        if target:
+            db.add(ReviewDecision(run_id=target.run_id, trace_id=target.id, actor_id=current_user.id,
+                status=update_data.status, origin='legacy_adapter'))
     link.status = update_data.status
     db.commit()
     db.refresh(link)

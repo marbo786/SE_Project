@@ -2,6 +2,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 import yaml
 import os
+from contextvars import ContextVar
+
+run_config = ContextVar("run_config", default=None)
 
 _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 _backend_env = os.path.join(_backend_dir, ".env")
@@ -51,6 +54,8 @@ def load_yaml_config() -> dict:
 _yaml_config: dict | None = None
 
 def get_yaml_config() -> dict:
+    if run_config.get() is not None:
+        return run_config.get()
     global _yaml_config
     if _yaml_config is None:
         _yaml_config = load_yaml_config()

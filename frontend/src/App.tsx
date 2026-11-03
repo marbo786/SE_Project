@@ -9,6 +9,7 @@ import Layout from '@/components/Layout'
 import { useAuth } from '@/lib/auth'
 import RecoveryPage from '@/pages/RecoveryPage'
 import AccountPage from '@/pages/AccountPage'
+import DraftPage from '@/pages/DraftPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading, error, refresh } = useAuth()
@@ -53,6 +54,7 @@ export default function App() {
           <Layout><ReportPage /></Layout>
         </ProtectedRoute>
       } />
+      <Route path="/projects/:id/revisions/:revisionId" element={<ProtectedRoute><Layout><DraftPage /></Layout></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

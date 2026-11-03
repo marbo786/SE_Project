@@ -8,7 +8,7 @@ import sys
 from smoke_http import main as smoke
 
 
-def main():
+def main(browser=False):
     root = Path(__file__).resolve().parents[1]
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     with TemporaryDirectory(prefix="srs-http-") as directory:
@@ -25,6 +25,19 @@ def main():
                 processes.append(subprocess.Popen([shutil.which("node"), str(root / "frontend/node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "15173", "--strictPort"], cwd=root / "frontend", env=env, stdout=log, stderr=log, creationflags=flags))
                 os.environ["SMOKE_API_URL"] = "http://127.0.0.1:15173/api"
                 smoke()
+                if browser:
+                    from docx import Document
+                    fixture = Path(directory) / 'browser-source.docx'
+                    document = Document()
+                    document.add_paragraph('FR-1 The system shall respond fast.')
+                    document.save(fixture)
+                    browser_env = {**env, 'BROWSER_BASE_URL': 'http://127.0.0.1:15173', 'BROWSER_SRS_PATH': str(fixture)}
+                    result = subprocess.run([shutil.which('node'), str(root / 'frontend/node_modules/@playwright/test/cli.js'), 'test'],
+                        cwd=root / 'frontend', env=browser_env, capture_output=True, text=True, encoding='utf-8', errors='replace', creationflags=flags)
+                    print(result.stdout.encode('ascii', errors='backslashreplace').decode())
+                    if result.returncode:
+                        print(result.stderr.encode('ascii', errors='backslashreplace').decode())
+                    result.check_returncode()
             except Exception:
                 log.flush(); log.seek(0); print(log.read())
                 raise
@@ -40,4 +53,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(browser='--browser' in sys.argv)

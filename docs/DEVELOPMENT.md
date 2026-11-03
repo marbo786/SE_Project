@@ -15,3 +15,16 @@ Tests override database, upload directory, provider, and mail settings before im
 Uploads: 10 MB compressed, 50 MB expanded DOCX, at most 1,000 ZIP entries, 100 PDF pages, and 1,000,000 extracted characters. A dedicated parser subprocess has a 20-second timeout and a 512 MB address-space limit on Linux. Native Windows enforces the timeout and input limits; use Linux containers for a hard parser memory ceiling. Development Compose additionally caps API memory at 1 GB. Limits are configurable operating defaults, not measured capacity guarantees. Image-only/encrypted/corrupt files and unsafe PlantUML preprocessing are rejected. Draft replacement preserves the prior file on validation failure; inputs lock when analysis starts.
 
 Rendered visual/accessibility review remains pending for M6/M8. The earlier audit's visual ratings are provisional. See `IMPLEMENTATION_STATUS.md` for milestone evidence and outstanding gates.
+# Revision and history checks
+
+The [revision guide](REVISION_HISTORY.md) covers contracts, backup rehearsal, cutover, and retention. Browser checks use isolated services and data:
+
+```powershell
+cd frontend
+npm ci
+npx playwright install chromium
+cd ..
+.\.venv313\Scripts\python.exe scripts/check_http_local.py --browser
+```
+
+Screenshots and failed-test traces are written under `frontend/test-results` (ignored). PostgreSQL checks run in CI; to run them locally, point `TEST_POSTGRES_URL` at a disposable PostgreSQL database. The test creates and removes a unique schema, not the database.

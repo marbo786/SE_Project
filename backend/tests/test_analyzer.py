@@ -105,10 +105,20 @@ async def test_evidence_persisted_and_no_requirements_not_graded(db_session, tmp
     assert missing_id.source_ref == "Paragraph 1"
     assert missing_id.element_id
     assert missing_id.source_spans[0]["artifact_id"]
-    from docx import Document
-    path = tmp_path / "input.docx"
-    doc = Document(); doc.add_paragraph("A narrative overview without any normative statement."); doc.save(path)
+    from app.services.history import fork_draft
+    from app.core.uploads import store_artifact
+    from .test_uploads import document_bytes
+    db_session.expire_all()
+    previous_run = project.published_run_id
+    previous_score = db_session.query(QualityScore).one().overall_score
+    revision = fork_draft(db_session, project, project.user_id)
+    db_session.commit()
+    store_artifact(db_session, project, 'srs', document_bytes('A narrative overview without any normative statement.'),
+        'docx', 'revised.docx', revision=revision)
     await analyzer.run_analysis_pipeline(project.id)
     db_session.expire_all()
     assert db_session.get(Project, project.id).status == "partial"
-    assert db_session.query(QualityScore).one().overall_score is None
+    from app.models.history import RunQualityScore
+    assert db_session.get(RunQualityScore, project.latest_run_id).overall_score is None
+    assert project.published_run_id == previous_run
+    assert db_session.query(QualityScore).one().overall_score == previous_score

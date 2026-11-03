@@ -1,5 +1,6 @@
 """Normalized symbols for the documented PlantUML subset; never execute source."""
 import re
+import hashlib
 from ...core.config import get_settings
 
 ELEMENT = r'(?:"[^"\n]+"|\([^\n)]+\)|:[^:\n]+:|[\w.$]+)'
@@ -73,7 +74,8 @@ def parse_plantuml(text, diagram_type=None, diagram_id="diagram"):
             if not implicit:
                 model["warnings"].append(f"Line {line}: duplicate alias {alias}; references are ambiguous.")
             return symbols[alias]
-        element = {"name": name, "alias": alias, "id": f"{diagram_id}:{collection}:{alias}",
+        symbol_key = alias if len(alias) <= 300 else hashlib.sha256(alias.encode()).hexdigest()
+        element = {"name": name, "alias": alias, "id": f"{diagram_id}:{collection}:{symbol_key}",
             "source_ref": f"Line {line}", "source_spans": [{"kind": "uml", "line": line, "diagram_id": diagram_id}], "implicit": implicit}
         model[collection].append(element); symbols[alias] = element
         if sum(len(model[key]) for key in ["actors", "use_cases", "classes", "participants", "messages"]) > get_settings().MAX_UML_ELEMENTS:
