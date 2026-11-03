@@ -89,3 +89,12 @@ def test_parser_timeout_becomes_actionable_error(monkeypatch):
     with pytest.raises(HTTPException, match="validation took too long") as error:
         uploads.validate_isolated(b"untrusted", "file.pdf")
     assert error.value.status_code == 400
+
+
+def test_architecture_scope_requires_all_declared_inputs(client, headers):
+    response = client.post("/projects/", headers=headers, json={"name": "Architecture", "analysis_profile": "architecture"})
+    pid = response.json()["id"]
+    client.post(f"/projects/{pid}/upload-srs", headers=headers, files={"file": ("srs.docx", document_bytes())})
+    response = client.post(f"/projects/{pid}/analyze", headers=headers)
+    assert response.status_code == 409
+    assert all(kind in response.json()["detail"] for kind in ["uml_usecase", "uml_class", "uml_sequence"])

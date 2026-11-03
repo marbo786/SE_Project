@@ -12,6 +12,9 @@ class Project(Base):
     description = Column(Text, nullable=True)
     version = Column(Integer, default=1)
     status = Column(String, default="pending")  # pending, analyzing, done, error
+    analysis_profile = Column(String, default="srs_only", nullable=False)
+    analysis_mode = Column(String, default="deterministic", nullable=False)
+    analysis_error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
@@ -19,3 +22,4 @@ class Project(Base):
     findings = relationship("Finding", back_populates="project", cascade="all, delete-orphan")
     trace_links = relationship("TraceLink", back_populates="project", cascade="all, delete-orphan")
     llm_logs = relationship("LLMLog", back_populates="project", cascade="all, delete-orphan")
+    quality_score = relationship("QualityScore", back_populates="project", uselist=False, cascade="all, delete-orphan")

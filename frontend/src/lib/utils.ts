@@ -81,9 +81,15 @@ export function scoreColor(score: number): string {
   return 'text-[#E06C6C]'
 }
 
+function apiDate(date: string | Date): Date {
+  // Legacy SQLite timestamps are UTC without an offset. Explicit offsets and
+  // Date objects already describe an instant and must remain unchanged.
+  return new Date(typeof date === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(date) && !/(Z|[+-]\d{2}:\d{2})$/i.test(date) ? `${date}Z` : date)
+}
+
 export function formatDate(date: string | Date): string {
   if (!date) return '—'
-  return new Date(date).toLocaleDateString('en-US', {
+  return apiDate(date).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
@@ -95,7 +101,7 @@ export function formatDate(date: string | Date): string {
 export function formatRelativeDate(date: string | Date): string {
   if (!date) return '—'
   const now = new Date()
-  const d = new Date(date)
+  const d = apiDate(date)
   const diffMs = now.getTime() - d.getTime()
   const diffMin = Math.floor(diffMs / 60000)
   const diffHr = Math.floor(diffMin / 60)

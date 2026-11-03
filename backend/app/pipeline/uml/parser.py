@@ -1,154 +1,201 @@
-"""
-UML Parser: converts PlantUML text into the internal UML model.
-"""
+"""Normalized symbols for the documented PlantUML subset; never execute source."""
 import re
-from typing import Dict, List, Optional
+from ...core.config import get_settings
+
+ELEMENT = r'(?:"[^"\n]+"|\([^\n)]+\)|:[^:\n]+:|[\w.$]+)'
+ARROW = r'[<|o*]*[-.]+(?:left|right|up|down)?[-.]*[>|o*]*'
+DECLARATION = re.compile(rf'^\s*(actor|usecase|participant|boundary|control|entity|database|collections|queue|class|interface|abstract\s+class)\s+({ELEMENT})(?:\s+as\s+([\w.$]+))?', re.I)
+DECORATION = re.compile(r"^(?:@(?:start|end)uml|title\b|skinparam\b|hide\b|show\b|left to right direction|top to bottom direction|autonumber\b|activate\b|deactivate\b|return\b|newpage\b|scale\b|\}|$)", re.I)
 
 
-def detect_diagram_type(plantuml_text: str) -> str:
-    """Detect diagram type from PlantUML source."""
-    text_lower = plantuml_text.lower()
-    # Check for use case characteristics
-    if 'actor ' in text_lower or ':actor:' in text_lower or 'usecase' in text_lower or 'left to right direction' in text_lower:
-        return 'usecase'
-    # Check for class diagram characteristics
-    if 'class ' in text_lower or 'interface ' in text_lower:
-        return 'class'
-    # Check for sequence diagram characteristics
-    if 'participant' in text_lower or 'activate' in text_lower or 'deactivate' in text_lower:
-        return 'sequence'
-    if '-->' in plantuml_text or '->' in plantuml_text:
-        return 'sequence'
-    return 'unknown'
+def label(value):
+    return value.strip().strip('"').strip("()").strip(":").strip()
 
 
-def parse_usecase_diagram(text: str) -> Dict:
-    """Extract actors, use cases, and relationships."""
-    actors = []
-    use_cases = []
-    relationships = []
-
-    # Actors: lines like 'actor "Name" as X' or 'actor Name' or ':Name:'
-    for m in re.finditer(r'actor\s+"?([^"\n\r]+?)"?(?:\s+as\s+(\w+))?$', text, re.MULTILINE | re.IGNORECASE):
-        raw_name = m.group(1).strip()
-        alias = m.group(2) or raw_name
-        if not any(a['name'] == raw_name for a in actors):
-            actors.append({"name": raw_name, "alias": alias})
-
-    for m in re.finditer(r':([^:\n\r]+):', text):
-        name = m.group(1).strip()
-        if not any(a['name'] == name for a in actors):
-            actors.append({"name": name, "alias": name})
-
-    # Use cases: (Use Case Name) or usecase "Name" as X or usecase Name
-    for m in re.finditer(r'\(([^)\n\r]+)\)', text):
-        name = m.group(1).strip()
-        if not any(uc['name'] == name for uc in use_cases):
-            use_cases.append({"name": name})
-
-    for m in re.finditer(r'usecase\s+"?([^"\n\r]+?)"?(?:\s+as\s+(\w+))?$', text, re.MULTILINE | re.IGNORECASE):
-        name = m.group(1).strip()
-        if not any(uc['name'] == name for uc in use_cases):
-            use_cases.append({"name": name})
-
-    # Relationships: arrows between elements, e.g. Actor --> (Use Case) or Actor -> UC
-    # Match element identifier or ("...") or (...)
-    elem_pattern = r'(\([^)]+\)|"[^"]+"|[a-zA-Z0-9_]+)'
-    arrow_pattern = r'(-->|--|-\.->|\.\.|<--|->|<--)'
-    rel_regex = re.compile(rf'{elem_pattern}\s*{arrow_pattern}\s*{elem_pattern}(?:\s*:\s*(.+))?', re.MULTILINE)
-
-    for m in rel_regex.finditer(text):
-        raw_source = m.group(1).strip().strip('"').strip('()').strip()
-        rel = m.group(2)
-        raw_target = m.group(3).strip().strip('"').strip('()').strip()
-        label = m.group(4).strip() if m.group(4) else ''
-
-        relationships.append({
-            "source": raw_source,
-            "relation": rel,
-            "target": raw_target,
-            "label": label
-        })
-
-    return {"type": "usecase", "actors": actors, "use_cases": use_cases, "relationships": relationships}
+def split_parameters(value):
+    if not value.strip():
+        return []
+    parts, start, depth, quote, escaped = [], 0, 0, None, False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+        elif char in {'"', "'"}:
+            quote = char
+        elif char in "(<[":
+            depth += 1
+        elif char in ")>]":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            parts.append(value[start:index].strip()); start = index + 1
+    parts.append(value[start:].strip())
+    return parts
 
 
-def parse_class_diagram(text: str) -> Dict:
-    """Extract classes, attributes, operations, and associations."""
-    classes = []
-    associations = []
+def operation_signature(value):
+    clean = re.sub(r"\{(?:static|abstract|method)\}", "", value).strip()
+    match = re.search(r"([\w$]+)\s*\((.*)\)\s*(?::\s*(.+))?$", clean)
+    if not match:
+        return None
+    parameters = split_parameters(match[2])
+    return {"name": match[1], "parameters": parameters, "arity": len(parameters),
+        "return_type": match[3], "visibility": clean[0] if clean[:1] in {"+", "-", "#", "~"} else None,
+        "text": value}
 
-    # Class blocks
-    for m in re.finditer(r'class\s+(\w+)(?:\s+\{([^}]*)\})?', text, re.DOTALL):
-        class_name = m.group(1)
-        body = m.group(2) or ''
-        attributes = []
-        operations = []
-        for line in body.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            if '()' in line or re.search(r'\w+\(', line):
-                operations.append(line)
+
+def detect_diagram_type(text):
+    if re.search(r"(?m)^\s*(?:abstract\s+)?(?:class|interface)\b", text):
+        return "class"
+    if re.search(r"(?m)^\s*(?:participant|boundary|control|entity|database)\b", text):
+        return "sequence"
+    if re.search(r"\busecase\b|\([^)]*\)", text) and not re.search(r"->[^\n]+:", text):
+        return "usecase"
+    if re.search(r"(?m)^\s*actor\b", text) and not re.search(r"->[^\n]+:", text):
+        return "usecase"
+    return "sequence" if re.search(ARROW, text) else "unknown"
+
+
+def parse_plantuml(text, diagram_type=None, diagram_id="diagram"):
+    kind = diagram_type or detect_diagram_type(text)
+    model = {"type": kind, "diagram_id": diagram_id, "parser_version": "uml-2", "warnings": [],
+        "actors": [], "use_cases": [], "classes": [], "participants": [], "messages": [],
+        "relationships": [], "associations": []}
+    symbols, pending, namespaces = {}, [], []
+    current_class = None
+    block_comment = False
+
+    def add(collection, name, alias, line, implicit=False):
+        if alias in symbols:
+            if not implicit:
+                model["warnings"].append(f"Line {line}: duplicate alias {alias}; references are ambiguous.")
+            return symbols[alias]
+        element = {"name": name, "alias": alias, "id": f"{diagram_id}:{collection}:{alias}",
+            "source_ref": f"Line {line}", "source_spans": [{"kind": "uml", "line": line, "diagram_id": diagram_id}], "implicit": implicit}
+        model[collection].append(element); symbols[alias] = element
+        if sum(len(model[key]) for key in ["actors", "use_cases", "classes", "participants", "messages"]) > get_settings().MAX_UML_ELEMENTS:
+            raise ValueError("Diagram exceeds the supported element count")
+        return element
+
+    def member(value):
+        value = value.strip()
+        if not value or re.fullmatch(r"[-=_.]+", value):
+            return
+        signature = operation_signature(value)
+        if signature:
+            current_class["operations"].append(value)
+            current_class["operation_signatures"].append(signature)
+        else:
+            current_class["attributes"].append(value)
+
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if line.startswith("/'"):
+            block_comment = True
+        if block_comment:
+            if "'/" in line:
+                block_comment = False
+            continue
+        if not line or line.startswith("'"):
+            continue
+        if current_class is not None:
+            if line == "}":
+                current_class = None
             else:
-                attributes.append(line)
-        classes.append({"name": class_name, "attributes": attributes, "operations": operations})
+                member(line)
+            continue
+        namespace = re.match(r'^(?:namespace|package)\s+([\w.]+)\s*\{', line)
+        if namespace:
+            namespaces.append(namespace[1]); continue
+        if line == "}" and namespaces:
+            namespaces.pop(); continue
+        declaration = DECLARATION.match(line)
+        if declaration:
+            token, name, alias = declaration.groups()
+            token, name = token.lower(), label(name)
+            if kind == "class" and token in {"class", "interface", "abstract class"}:
+                qualified = ".".join([*namespaces, name])
+                current_class = add("classes", qualified, alias or qualified, number)
+                current_class.update(attributes=[], operations=[], operation_signatures=[], declaration=token)
+                if "{" in line:
+                    body = line.split("{", 1)[1]
+                    if "}" in body:
+                        member(body.rsplit("}", 1)[0]); current_class = None
+                    elif body.strip():
+                        member(body)
+                else:
+                    current_class = None
+                continue
+            collection = "actors" if kind == "usecase" and token == "actor" else "use_cases" if kind == "usecase" and token == "usecase" else "participants" if kind == "sequence" else None
+            if collection:
+                add(collection, name, alias or name, number); continue
+        relation = re.match(rf'^({ELEMENT})\s*("[^"\n]*")?\s*({ARROW})\s*("[^"\n]*")?\s*({ELEMENT})(?:\s*:\s*(.*))?$', line)
+        if relation:
+            source, source_multiplicity, arrow, target_multiplicity, target, caption = relation.groups()
+            # Arrow direction is semantic for sequence calls, not visual left-to-right order.
+            if kind == "sequence" and arrow.startswith("<") and not arrow.endswith(">"):
+                source, target = target, source
+            if kind == "usecase":
+                for endpoint in [source, target]:
+                    if endpoint.startswith("("):
+                        add("use_cases", label(endpoint), label(endpoint), number, implicit=True)
+                    elif endpoint.startswith(":"):
+                        add("actors", label(endpoint), label(endpoint), number, implicit=True)
+            pending.append({"source": label(source), "target": label(target), "relation": arrow,
+                "label": caption or "", "source_multiplicity": source_multiplicity,
+                "target_multiplicity": target_multiplicity, "line": number})
+            continue
+        if kind == "usecase":
+            implicit = re.fullmatch(r'(\([^)]*\)|:[^:]+:)(?:\s+as\s+([\w.$]+))?', line)
+            if implicit:
+                name = label(implicit[1]); add("use_cases" if line.startswith("(") else "actors", name, implicit[2] or name, number)
+                continue
+        if not DECORATION.match(line):
+            model["warnings"].append(f"Line {number}: unsupported syntax; review this diagram's extraction.")
 
-    # Associations
-    for m in re.finditer(
-        r'(\w+)\s*("[^"]*")?\s*(--|-->|<--|<-->|\.\.|o--|\*--)\s*("[^"]*")?\s*(\w+)',
-        text
-    ):
-        source = m.group(1)
-        src_mult = m.group(2)
-        rel = m.group(3)
-        tgt_mult = m.group(4)
-        target = m.group(5)
-        associations.append({
-            "source": source,
-            "target": target,
-            "relation": rel,
-            "source_multiplicity": src_mult,
-            "target_multiplicity": tgt_mult
-        })
+    def resolve(value):
+        if value in symbols:
+            return symbols[value]
+        candidates = [item for item in symbols.values() if item["name"] == value]
+        return candidates[0] if len(candidates) == 1 else None
 
-    return {"type": "class", "classes": classes, "associations": associations}
-
-
-def parse_sequence_diagram(text: str) -> Dict:
-    """Extract participants and messages."""
-    participants = []
-    messages = []
-
-    for m in re.finditer(r'participant\s+"?([^"\n]+?)"?(?:\s+as\s+(\w+))?$', text, re.MULTILINE | re.IGNORECASE):
-        name = m.group(1).strip()
-        alias = m.group(2) or name
-        participants.append({"name": name, "alias": alias})
-
-    for m in re.finditer(r'(\w+)\s*(->>?|-->>?|->|-->)\s*(\w+)\s*:\s*(.+)', text):
-        source = m.group(1)
-        arrow = m.group(2)
-        target = m.group(3)
-        message = m.group(4).strip()
-        # Extract operation name (before parentheses if any)
-        op_match = re.match(r'(\w+)\s*\(', message)
-        operation = op_match.group(1) if op_match else message
-        messages.append({
-            "from": source, "to": target,
-            "message": message, "operation": operation, "arrow": arrow
-        })
-
-    return {"type": "sequence", "participants": participants, "messages": messages}
+    for relation in pending:
+        source, target = resolve(relation["source"]), resolve(relation["target"])
+        if kind == "sequence":
+            source = source or add("participants", relation["source"], relation["source"], relation["line"], implicit=True)
+            target = target or add("participants", relation["target"], relation["target"], relation["line"], implicit=True)
+            signature = operation_signature(relation["label"])
+            message = {"id": f"{diagram_id}:message:{relation['line']}",
+                "from": source["alias"], "to": target["alias"], "from_id": source["id"], "to_id": target["id"],
+                "receiver": target["name"], "message": relation["label"], "arrow": relation["relation"],
+                "operation": signature["name"] if signature else None, "arity": signature["arity"] if signature else None,
+                "is_reply": relation["relation"].startswith("--"),
+                "source_ref": f"Line {relation['line']}", "source_spans": [{"kind": "uml", "line": relation["line"], "diagram_id": diagram_id}]}
+            model["messages"].append(message)
+        else:
+            relation.update(source_id=source["id"] if source else None, target_id=target["id"] if target else None,
+                source_name=source["name"] if source else relation["source"], target_name=target["name"] if target else relation["target"],
+                source_ref=f"Line {relation['line']}")
+            model["associations" if kind == "class" else "relationships"].append(relation)
+    if current_class is not None:
+        model["warnings"].append("A class body is missing its closing brace.")
+    if not any(model[key] for key in ["actors", "use_cases", "classes", "participants", "messages"]):
+        model["warnings"].append("No supported diagram elements were extracted.")
+    if sum(len(model[key]) for key in ["actors", "use_cases", "classes", "participants", "messages"]) > get_settings().MAX_UML_ELEMENTS:
+        raise ValueError("Diagram exceeds the supported element count")
+    return model
 
 
-def parse_plantuml(plantuml_text: str, diagram_type: Optional[str] = None) -> Dict:
-    """Main entry: parse PlantUML into internal UML model."""
-    if diagram_type is None:
-        diagram_type = detect_diagram_type(plantuml_text)
-    if diagram_type == 'usecase':
-        return parse_usecase_diagram(plantuml_text)
-    elif diagram_type == 'class':
-        return parse_class_diagram(plantuml_text)
-    elif diagram_type == 'sequence':
-        return parse_sequence_diagram(plantuml_text)
-    return {"type": "unknown", "raw": plantuml_text}
+def parse_usecase_diagram(text):
+    return parse_plantuml(text, "usecase")
+
+
+def parse_class_diagram(text):
+    return parse_plantuml(text, "class")
+
+
+def parse_sequence_diagram(text):
+    return parse_plantuml(text, "sequence")

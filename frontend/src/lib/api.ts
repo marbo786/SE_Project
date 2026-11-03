@@ -43,7 +43,8 @@ export const authApi = {
 export const projectsApi = {
   list: () => api.get('/projects/'),
   get: (id: number) => api.get(`/projects/${id}`),
-  create: (data: { name: string; description?: string }) => api.post('/projects/', data),
+  create: (data: { name: string; description?: string; analysis_profile?: 'srs_only' | 'architecture'; analysis_mode?: 'deterministic' | 'ai' }) => api.post('/projects/', data),
+  extraction: (id: number) => api.get(`/projects/${id}/extraction`),
   uploadSRS: (id: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)

@@ -11,6 +11,8 @@ class FindingOut(BaseModel):
     artifact_type: Optional[str]
     requirement_id: Optional[str]
     source_ref: Optional[str] = None
+    source_spans: Optional[list[dict]] = None
+    element_id: Optional[str] = None
     finding_type: str
     rewrite_suggestion: Optional[str]
     rewrite_attempts: Optional[int] = 0

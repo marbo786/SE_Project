@@ -25,28 +25,13 @@ flowchart TD
 4. **Traceability Linker**: Calculates Jaccard overlap and uses transitive tracing (Requirement -> Use Case -> Sequence -> Class) to build a traceability matrix.
 5. **Scoring Engine**: Normalizes penalties by document size to calculate the final quality score.
 
-## Quality Scoring Formula
+## Quality scoring and evidence
 
-The system calculates normalized scores for Requirements, UML, and Traceability based on defect density (penalties per element) to ensure long documents aren't disproportionately penalized.
+Reviews select requirements-only or requirements-and-architecture scope. Rubric v2 exposes category percentages, eligible counts, and weighted contributions. Missing evidence is not full credit; empty or incomplete analysis has no final grade. Trace scores use stable coverage obligations, while candidate similarity and reviewer confirmation remain distinct. See [the analysis contract](docs/ANALYSIS_CONTRACT.md) for formulas, supported syntax, limitations, and provenance.
 
-- **Element Count**: Number of requirements, UML elements, or trace links.
-- **Base Penalty**: Sum of penalties for findings (Critical = 15, Major = 5, Minor = 2).
-- **Raw Category Score** = `max(0, 100 - (Base Penalty / Element Count) * 10)`
+## Evaluation
 
-The final overall score is a weighted average configured via `config.yaml` (Requirements 40%, UML 30%, Traceability 30%).
-
-## Evaluation Results
-
-The deterministic parser was evaluated against a labelled dataset of requirements covering major rules.
-
-| Rule | Precision | Recall | F1-Score |
-|---|---|---|---|
-| FR-401 (Ambiguous Words) | 1.00 | 0.90 | 0.95 |
-| FR-402 (Multiple Shall) | 1.00 | 1.00 | 1.00 |
-| FR-409 (Missing ID) | 1.00 | 1.00 | 1.00 |
-| FR-410 (Duplicate ID) | 1.00 | 1.00 | 1.00 |
-| FR-411 (NFR Missing Metric) | 1.00 | 1.00 | 1.00 |
-| **Overall** | **1.00** | **0.97** | **0.98** |
+See [the reproducible fixture results](backend/eval/results.md). The evaluator counts each occurrence independently, including missing and duplicate authored IDs. The original small dataset is a development fixture; it does not establish production accuracy or AI reliability. Its generic NFR labels require review under the updated threshold rule. Regression tests additionally cover document extraction, UML, tracing, scoring, access controls, and failure recovery.
 
 ## Setup
 

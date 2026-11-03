@@ -1,169 +1,96 @@
-"""
-Deterministic UML checks (use case, class, sequence diagrams).
-"""
-from typing import List, Dict
+"""Deterministic checks over resolved UML symbols and receiver-specific calls."""
+from collections import Counter, defaultdict, deque
 from ...core.config import get_yaml_config
+from ..uml.parser import operation_signature
 
 
-def _sev(rule_key: str) -> str:
-    config = get_yaml_config()
-    return config.get('rules', {}).get(rule_key, {}).get('severity', 'major')
+def issue(rule, severity_key, element, explanation):
+    return {"rule_id": rule, "severity": get_yaml_config().get("rules", {}).get(severity_key, {}).get("severity", "major"),
+        "quoted_text": element.get("name") or element.get("message"), "explanation": explanation,
+        "requirement_id": None, "element_id": element.get("id"), "finding_type": "deterministic", "artifact_type": "uml",
+        "source_ref": element.get("source_ref"), "source_spans": element.get("source_spans", [])}
 
 
-def check_usecase_diagram(uml_model: Dict) -> List[Dict]:
-    findings = []
-    actors = uml_model.get('actors', [])
-    use_cases = uml_model.get('use_cases', [])
-    relationships = uml_model.get('relationships', [])
+def duplicate_names(elements):
+    counts = Counter(element["name"].casefold() for element in elements)
+    return [issue("FR-609", "uml_duplicate_name", element, f'Duplicate display name "{element["name"]}"; use distinct names or review the aliases.')
+        for element in elements if counts[element["name"].casefold()] > 1]
 
-    # Collect all connected names
-    connected = set()
-    for rel in relationships:
-        connected.add(rel['source'].lower())
-        connected.add(rel['target'].lower())
 
-    # FR-601: Actors not connected to any use case
+def check_usecase_diagram(model):
+    actors, cases = model.get("actors", []), model.get("use_cases", [])
+    symbols = {element.get("alias", element["name"]): element.get("id", element["name"]) for element in [*actors, *cases]}
+    graph = defaultdict(set)
+    for edge in model.get("relationships", []):
+        source = edge.get("source_id") or symbols.get(edge["source"])
+        target = edge.get("target_id") or symbols.get(edge["target"])
+        if source and target:
+            graph[source].add(target); graph[target].add(source)
+
+    def reaches(start, targets):
+        queue, seen = deque([start]), {start}
+        while queue:
+            node = queue.popleft()
+            for adjacent in graph[node] - seen:
+                if adjacent in targets:
+                    return True
+                seen.add(adjacent); queue.append(adjacent)
+        return False
+
+    actor_ids = {actor.get("id", actor["name"]) for actor in actors}
+    case_ids = {case.get("id", case["name"]) for case in cases}
+    findings = duplicate_names(cases)
     for actor in actors:
-        alias = actor.get('alias', actor['name']).lower()
-        name = actor['name'].lower()
-        if alias not in connected and name not in connected:
-            findings.append({
-                'rule_id': 'FR-601',
-                'severity': _sev('uml_actor_disconnected'),
-                'quoted_text': actor['name'],
-                'explanation': f'Actor "{actor["name"]}" is not connected to any use case.',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'uml'
-            })
-
-    # FR-602: Use cases not connected to any actor
-    for uc in use_cases:
-        uc_name = uc['name'].lower()
-        if not any(uc_name in r['source'].lower() or uc_name in r['target'].lower() for r in relationships):
-            findings.append({
-                'rule_id': 'FR-602',
-                'severity': _sev('uml_usecase_disconnected'),
-                'quoted_text': uc['name'],
-                'explanation': f'Use case "{uc["name"]}" is not connected to any actor.',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'uml'
-            })
-
-    # FR-609: Duplicate element names
-    names = [uc['name'].lower() for uc in use_cases]
-    for i, name in enumerate(names):
-        if names.count(name) > 1 and i == names.index(name):
-            findings.append({
-                'rule_id': 'FR-609',
-                'severity': _sev('uml_duplicate_name'),
-                'quoted_text': name,
-                'explanation': f'Duplicate use case name: "{name}".',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'uml'
-            })
+        if not reaches(actor.get("id", actor["name"]), case_ids):
+            findings.append(issue("FR-601", "uml_actor_disconnected", actor, f'Actor "{actor["name"]}" has no path to a use case.'))
+    for case in cases:
+        if not reaches(case.get("id", case["name"]), actor_ids):
+            findings.append(issue("FR-602", "uml_usecase_disconnected", case, f'Use case "{case["name"]}" has no path to an actor.'))
     return findings
 
 
-def check_class_diagram(uml_model: Dict) -> List[Dict]:
-    findings = []
-    classes = uml_model.get('classes', [])
-    associations = uml_model.get('associations', [])
-    class_names = {c['name'].lower() for c in classes}
-
-    for cls in classes:
-        # FR-603: Empty classes
-        if not cls.get('attributes') and not cls.get('operations'):
-            findings.append({
-                'rule_id': 'FR-603',
-                'severity': _sev('uml_class_empty'),
-                'quoted_text': cls['name'],
-                'explanation': f'Class "{cls["name"]}" has no attributes or operations.',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'uml'
-            })
-
-    for assoc in associations:
-        # FR-604: Associations with no multiplicity
-        if not assoc.get('source_multiplicity') and not assoc.get('target_multiplicity'):
-            findings.append({
-                'rule_id': 'FR-604',
-                'severity': _sev('uml_assoc_no_multiplicity'),
-                'quoted_text': f"{assoc['source']} -- {assoc['target']}",
-                'explanation': f'Association between "{assoc["source"]}" and "{assoc["target"]}" has no multiplicity.',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'uml'
-            })
-        # FR-605: Undefined classes in associations
-        for endpoint in ['source', 'target']:
-            ep = assoc.get(endpoint, '').lower()
-            if ep and ep not in class_names:
-                findings.append({
-                    'rule_id': 'FR-605',
-                    'severity': _sev('uml_undefined_class'),
-                    'quoted_text': assoc.get(endpoint),
-                    'explanation': f'Association refers to class "{assoc.get(endpoint)}" which is not defined in the diagram.',
-                    'requirement_id': None,
-                    'finding_type': 'deterministic',
-                    'artifact_type': 'uml'
-                })
+def check_class_diagram(model):
+    findings = duplicate_names(model.get("classes", []))
+    names = {value for element in model.get("classes", []) for value in [element["name"], element.get("alias", element["name"])]}
+    for element in model.get("classes", []):
+        if not element.get("attributes") and not element.get("operations"):
+            findings.append(issue("FR-603", "uml_class_empty", element, f'Class "{element["name"]}" has no attributes or operations.'))
+    for relation in model.get("associations", []):
+        element = {**relation, "name": f'{relation["source"]} {relation["relation"]} {relation["target"]}'}
+        if "|" not in relation["relation"] and "." not in relation["relation"] and not relation.get("source_multiplicity") and not relation.get("target_multiplicity"):
+            findings.append(issue("FR-604", "uml_assoc_no_multiplicity", element, "Association has no multiplicity at either endpoint."))
+        for endpoint in ["source", "target"]:
+            if not relation.get(endpoint + "_id") and relation[endpoint] not in names:
+                findings.append(issue("FR-605", "uml_undefined_class", element, f'Association refers to undefined class "{relation[endpoint]}".'))
     return findings
 
 
-def check_sequence_diagram(uml_model: Dict, class_uml_model: Dict = None) -> List[Dict]:
-    findings = []
-    messages = uml_model.get('messages', [])
-
-    # FR-606: Operations not defined in class diagram
-    if class_uml_model:
-        import re
-        all_operations = set()
-        for cls in class_uml_model.get('classes', []):
-            for op in cls.get('operations', []):
-                op_name = re.match(r'\w+', op.strip())
-                if op_name:
-                    all_operations.add(op_name.group(0).lower())
-
-        for msg in messages:
-            op = msg.get('operation', '').lower()
-            if op and op not in all_operations:
-                findings.append({
-                    'rule_id': 'FR-606',
-                    'severity': _sev('uml_op_not_in_class'),
-                    'quoted_text': msg.get('message'),
-                    'explanation': f'Message "{msg["message"]}" calls operation "{msg["operation"]}" which is not defined in the class diagram.',
-                    'requirement_id': None,
-                    'finding_type': 'deterministic',
-                    'artifact_type': 'uml'
-                })
-
-    # FR-609: Duplicate participant names
-    participants = uml_model.get('participants', [])
-    names = [p['name'].lower() for p in participants]
-    for i, name in enumerate(names):
-        if names.count(name) > 1 and i == names.index(name):
-            findings.append({
-                'rule_id': 'FR-609',
-                'severity': _sev('uml_duplicate_name'),
-                'quoted_text': name,
-                'explanation': f'Duplicate participant name: "{name}".',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'uml'
-            })
+def check_sequence_diagram(model, class_model=None):
+    findings = duplicate_names([p for p in model.get("participants", []) if not p.get("implicit")])
+    if not class_model:
+        return findings
+    classes = class_model.get("classes", [])
+    participants = {p.get("alias", p["name"]): p["name"] for p in model.get("participants", [])}
+    for message in model.get("messages", []):
+        if message.get("is_reply") or not message.get("operation"):
+            continue
+        receiver = message.get("receiver") or participants.get(message.get("to"), message.get("to", ""))
+        receiver = receiver.split(":")[-1].strip()
+        candidates = [c for c in classes if receiver.casefold() in {c["name"].casefold(), c.get("alias", c["name"]).casefold()}]
+        signatures = [signature for c in candidates for signature in (c.get("operation_signatures") or [operation_signature(op) for op in c.get("operations", [])]) if signature]
+        matches = [signature for signature in signatures if signature["name"].casefold() == message["operation"].casefold()
+            and (message.get("arity") is None or signature["arity"] == message["arity"])]
+        if not matches:
+            findings.append(issue("FR-606", "uml_op_not_in_class", message,
+                f'Call "{message["message"]}" has no matching operation/argument count on receiver "{receiver}".'))
     return findings
 
 
-def run_all_uml_checks(uml_model: Dict, class_model: Dict = None) -> List[Dict]:
-    diagram_type = uml_model.get('type', 'unknown')
-    if diagram_type == 'usecase':
-        return check_usecase_diagram(uml_model)
-    elif diagram_type == 'class':
-        return check_class_diagram(uml_model)
-    elif diagram_type == 'sequence':
-        return check_sequence_diagram(uml_model, class_model)
+def run_all_uml_checks(model, class_model=None):
+    if model.get("type") == "usecase":
+        return check_usecase_diagram(model)
+    if model.get("type") == "class":
+        return check_class_diagram(model)
+    if model.get("type") == "sequence":
+        return check_sequence_diagram(model, class_model)
     return []

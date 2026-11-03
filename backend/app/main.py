@@ -2,6 +2,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from pathlib import Path
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.runtime.migration import MigrationContext
 from .core.database import engine
 from .core.config import get_settings
 from .core.request_limits import RequestSizeLimit
@@ -45,7 +49,11 @@ def health_check():
 def readiness():
     try:
         with engine.connect() as connection:
-            connection.execute(text("SELECT 1 FROM auth_sessions LIMIT 1"))
+            connection.execute(text("SELECT 1"))
+            config = Config()
+            config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+            if set(MigrationContext.configure(connection).get_current_heads()) != set(ScriptDirectory.from_config(config).get_heads()):
+                raise RuntimeError("Migrations pending")
     except Exception:
         raise HTTPException(503, "Database is unavailable or migrations are pending")
     return {"status": "ready"}

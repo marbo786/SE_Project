@@ -56,8 +56,6 @@ rules:
 
 trace_jaccard_threshold: 0.3
 
-trace_jaccard_threshold: 0.3
-
 severity_penalty:
   critical: 15
   major: 5

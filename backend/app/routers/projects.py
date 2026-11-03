@@ -39,6 +39,8 @@ def create_project(project_in: ProjectCreate, db: Session = Depends(get_db), cur
         name=project_in.name,
         description=project_in.description,
         version=version,
+        analysis_profile=project_in.analysis_profile,
+        analysis_mode=project_in.analysis_mode,
         status="pending"
     )
     db.add(project)
@@ -52,6 +54,15 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+def require_analysis_inputs(db, project):
+    available = {artifact.artifact_type for artifact in db.query(Artifact).filter_by(project_id=project.id)}
+    required = {"srs", "uml_usecase", "uml_class", "uml_sequence"} if project.analysis_profile == "architecture" else {"srs"}
+    if missing := required - available:
+        raise HTTPException(409, "Upload the required inputs for this profile: " + ", ".join(sorted(missing)))
+    if project.analysis_mode == "ai" and get_settings().LLM_PROVIDER == "mock":
+        raise HTTPException(409, "AI analysis needs a configured provider. Use deterministic analysis for offline checks.")
+
 
 def editable_project(db, current_user, project_id):
     project = require_project_access(db, current_user, project_id)
@@ -88,8 +99,7 @@ def analyze_project(project_id: int, background_tasks: BackgroundTasks, db: Sess
     if project.status in ["analyzing", "done"]:
         raise HTTPException(status_code=400, detail="Project analysis already started or finished")
 
-    if not db.query(Artifact).filter_by(project_id=project.id, artifact_type="srs").first():
-        raise HTTPException(409, "Upload an SRS before starting analysis")
+    require_analysis_inputs(db, project)
     enforce_limit(db, f"analysis:{current_user.id}", 10, 3600)
     claimed = db.query(Project).filter(Project.id == project.id, Project.status != "analyzing").update({"status": "analyzing"})
     if not claimed:
@@ -109,8 +119,7 @@ def reanalyze_project(project_id: int, background_tasks: BackgroundTasks, db: Se
     if project.status == "analyzing":
         raise HTTPException(status_code=400, detail="Project analysis is currently running")
 
-    if not db.query(Artifact).filter_by(project_id=project.id, artifact_type="srs").first():
-        raise HTTPException(409, "Upload an SRS before starting analysis")
+    require_analysis_inputs(db, project)
     enforce_limit(db, f"analysis:{current_user.id}", 10, 3600)
     claimed = db.query(Project).filter(Project.id == project.id, Project.status != "analyzing").update({"status": "analyzing"})
     if not claimed:
@@ -120,6 +129,14 @@ def reanalyze_project(project_id: int, background_tasks: BackgroundTasks, db: Se
 
     background_tasks.add_task(run_analysis_pipeline, project.id)
     return {"message": "Re-analysis started"}
+
+
+@router.get("/{project_id}/extraction")
+def get_extraction(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    require_project_access(db, current_user, project_id)
+    return [{"artifact_id": artifact.id, "type": artifact.artifact_type, "filename": artifact.original_filename,
+        "extraction": json.loads(artifact.extracted_content) if artifact.extracted_content else None}
+        for artifact in db.query(Artifact).filter_by(project_id=project_id)]
 
 @router.get("/{project_id}/compare")
 def compare_versions(project_id: int, with_version: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

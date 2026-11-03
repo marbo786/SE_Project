@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { projectsApi } from '@/lib/api'
+import { projectsApi, apiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,6 +39,8 @@ export default function NewProjectPage() {
   // Form State
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [profile, setProfile] = useState<'srs_only' | 'architecture'>('srs_only')
+  const [useAI, setUseAI] = useState(false)
   const [srsFile, setSrsFile] = useState<File | null>(null)
 
   // UML Diagrams
@@ -100,13 +102,18 @@ export default function NewProjectPage() {
       setCurrentStep(2)
       return
     }
+    if (profile === 'architecture' && !['usecase', 'class', 'sequence'].every(type => umlFiles.some(uml => uml.type === type))) {
+      setError('The architecture profile requires use-case, class, and sequence diagrams.')
+      setCurrentStep(3)
+      return
+    }
 
     setLoading(true)
     setError('')
 
     try {
       // 1. Create project
-      const res = await projectsApi.create({ name, description })
+      const res = await projectsApi.create({ name, description, analysis_profile: profile, analysis_mode: useAI ? 'ai' : 'deterministic' })
       const projectId = res.data.id
 
       // 2. Upload SRS
@@ -123,7 +130,7 @@ export default function NewProjectPage() {
       // 5. Navigate to report
       navigate(`/projects/${projectId}`)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Analysis pipeline initiation failed.')
+      setError(apiError(err, 'Analysis could not start.'))
       setLoading(false)
     }
   }
@@ -196,6 +203,15 @@ export default function NewProjectPage() {
           </div>
 
           <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="analysis-profile">What should this review cover?</Label>
+              <select id="analysis-profile" value={profile} onChange={event => setProfile(event.target.value as typeof profile)} className="block w-full rounded border border-[#303136] bg-[#17181B] p-3 text-sm">
+                <option value="srs_only">Requirements only</option>
+                <option value="architecture">Requirements and architecture (all three UML diagrams)</option>
+              </select>
+              <p className="text-sm text-[#A1A1AA]">The selected scope determines which checks and scores apply. Requirements-only reviews do not grade UML or traceability.</p>
+              <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={useAI} onChange={event => setUseAI(event.target.checked)} className="mt-1" />Include AI suggestions using the configured provider. Deterministic checks work offline.</label>
+            </div>
             <div>
               <Label htmlFor="spec-name" className="text-xs text-[#E7E7E9] mb-1.5 block">
                 Specification Name <span className="text-[#C04848]">*</span>

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
     MAX_DOCUMENT_PAGES: int = 100
     MAX_DOCUMENT_CHARACTERS: int = 1_000_000
+    MAX_REQUIREMENTS: int = 1000
+    MAX_UML_ELEMENTS: int = 2000
     MAX_EXPANDED_SIZE: int = 50 * 1024 * 1024
     PARSER_TIMEOUT_SECONDS: int = 20
     PARSER_MEMORY_MB: int = 512

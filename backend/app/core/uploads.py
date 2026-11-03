@@ -93,7 +93,7 @@ def validate_uml(content, filename):
         raise HTTPException(400, "Diagram is empty, binary, or too large")
     if re.search(r"(?im)^\s*!|%(?:getenv|load_json|load_yaml|load_csv|file_exists)\s*\(", text):
         raise HTTPException(400, "PlantUML preprocessing and external resources are unsupported")
-    if not re.search(r"\b(actor|usecase|class|participant|interface)\b|[-=]+>", text):
+    if not re.search(r"\b(actor|usecase|class|participant|interface)\b", text) and "->" not in text and "<-" not in text:
         raise HTTPException(400, "No supported PlantUML elements were found")
     return "puml"
 
@@ -105,15 +105,16 @@ async def accept_upload(file, uml=False):
     return content, format, filename
 
 
-def validate_isolated(content, filename):
+def validate_isolated(content, filename, *, extract=False):
     settings = get_settings()
-    budgets = {key: getattr(settings, key) for key in ["MAX_DOCUMENT_PAGES", "MAX_DOCUMENT_CHARACTERS", "MAX_EXPANDED_SIZE", "PARSER_MEMORY_MB"]}
+    budgets = {key: getattr(settings, key) for key in ["MAX_DOCUMENT_PAGES", "MAX_DOCUMENT_CHARACTERS", "MAX_EXPANDED_SIZE", "PARSER_MEMORY_MB", "MAX_REQUIREMENTS", "MAX_UML_ELEMENTS"]}
     try:
         # A Windows venv launcher spawns a second interpreter; killing the launcher
         # alone leaves that child running. Execute the base interpreter directly.
         executable = getattr(sys, "_base_executable", sys.executable)
         environment = {**os.environ, "PYTHONPATH": sysconfig.get_path("purelib") + os.pathsep + os.environ.get("PYTHONPATH", "")}
-        result = subprocess.run([executable, "-m", "app.core.validate_document", filename, json.dumps(budgets)],
+        mode = extract if isinstance(extract, str) else "extract" if extract else "validate"
+        result = subprocess.run([executable, "-m", "app.core.validate_document", filename, json.dumps(budgets), mode],
             input=content, capture_output=True, timeout=settings.PARSER_TIMEOUT_SECONDS,
             cwd=str(Path(__file__).resolve().parents[2]), env=environment, check=False)
         if result.returncode != 0:
@@ -121,7 +122,7 @@ def validate_isolated(content, filename):
         parsed = json.loads(result.stdout)
         if "error" in parsed:
             raise HTTPException(400, parsed["error"])
-        return parsed["format"]
+        return parsed["extraction"] if extract else parsed["format"]
     except subprocess.TimeoutExpired:
         raise HTTPException(400, "Document validation took too long. Reduce the document size or complexity")
 

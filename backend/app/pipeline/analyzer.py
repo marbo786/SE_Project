@@ -1,235 +1,178 @@
-"""
-Main analysis pipeline: orchestrates parsing, checking, traceability, scoring.
-Runs as a background task with its own database session.
-"""
-import json
-import asyncio
-from typing import List, Dict
-from sqlalchemy.orm import Session
+"""Build a complete result in memory, then publish it in one transaction.
 
+Previous findings survive a failed reanalysis. Immutable run history and durable
+dispatch are introduced by the following schema/job milestones.
+"""
+from collections import defaultdict
+import json
+import logging
+from pathlib import Path
+from starlette.concurrency import run_in_threadpool
+from ..core.config import get_settings
 from ..core.database import SessionLocal
+from ..core.uploads import validate_isolated
 from ..models.project import Project
 from ..models.artifact import Artifact
 from ..models.finding import Finding
 from ..models.traceability import TraceLink
 from ..models.score import QualityScore
-from ..models.llm_log import LLMLog
-
-from .srs.parser import parse_srs
 from .uml.parser import parse_plantuml
 from .checks.srs_checks import run_all_srs_checks
 from .checks.uml_checks import run_all_uml_checks
 from .checks.llm_checks import check_testability, check_conflicts
-from .checks.traceability_checks import build_trace_links, check_traceability
+from .checks.traceability_checks import build_trace_links, check_traceability, trace_obligations, requirement_key, element_key
 from .scoring import compute_scores
 
 
-async def run_analysis_pipeline(project_id: int, _db=None) -> None:
-    """
-    Full analysis pipeline for a submission.
-    Creates its own DB session so it works correctly as a BackgroundTask.
-    The _db parameter is ignored (kept for backward compat with callers).
-    """
+def read_bounded(artifact):
+    maximum = get_settings().MAX_UPLOAD_SIZE
+    with Path(artifact.file_path).open("rb") as stream:
+        content = stream.read(maximum + 1)
+    if len(content) > maximum:
+        raise ValueError("Stored artifact exceeds the upload budget")
+    return content
+
+
+def extract_srs(artifact):
+    return validate_isolated(read_bounded(artifact), f"source.{artifact.file_format}", extract=True)
+
+
+def source_evidence(parsed, artifact):
+    collections = ["requirements", "actors", "use_cases", "classes", "participants", "messages"]
+    for collection in collections:
+        for element in parsed.get(collection, []):
+            element["artifact_id"] = artifact.id
+            for span in element.get("source_spans", []):
+                span["artifact_id"] = artifact.id
+    return parsed
+
+
+def endpoint_map(requirements, models):
+    aliases = defaultdict(set)
+    def remember(kind, key, labels):
+        aliases[(kind, key)].add(key)
+        for label in labels:
+            if label:
+                aliases[(kind, label)].add(key)
+    for index, req in enumerate(requirements):
+        remember("requirement", requirement_key(req, index), [req.get("id")])
+    for model in models.values():
+        for collection, kind in [("use_cases", "usecase"), ("classes", "class"), ("messages", "sequence"), ("participants", "sequence")]:
+            for element in model.get(collection, []):
+                remember(kind, element_key(element, "message" if collection == "messages" else "name"), [element.get("name"), element.get("alias"), element.get("message")])
+    return aliases
+
+
+async def run_analysis_pipeline(project_id, _db=None):
     db = SessionLocal()
     try:
-        project = db.query(Project).filter(Project.id == project_id).first()
+        project = db.get(Project, project_id)
         if not project:
             return
-
-        project.status = "analyzing"
+        project.status, project.analysis_error = "analyzing", None
         db.commit()
-
-        # Delete existing analysis data to prevent duplication on re-analysis
-        db.query(Finding).filter(Finding.project_id == project_id).delete()
-        db.query(TraceLink).filter(TraceLink.project_id == project_id, TraceLink.status == 'suggested').delete()
-        db.query(LLMLog).filter(LLMLog.project_id == project_id).delete()
-        db.query(QualityScore).filter(QualityScore.project_id == project_id).delete()
-        db.commit()
-
-        artifacts = db.query(Artifact).filter(Artifact.project_id == project_id).all()
-
-        # Group artifacts by type
-        srs_artifact = next((a for a in artifacts if a.artifact_type == 'srs'), None)
-        usecase_artifact = next((a for a in artifacts if a.artifact_type == 'uml_usecase'), None)
-        class_artifact = next((a for a in artifacts if a.artifact_type == 'uml_class'), None)
-        sequence_artifact = next((a for a in artifacts if a.artifact_type == 'uml_sequence'), None)
-
-        # ── Parse SRS ──────────────────────────────────────────────────────
-        srs_parsed = {"sections": [], "requirements": []}
-        if srs_artifact:
-            srs_parsed = parse_srs(srs_artifact.file_path, srs_artifact.file_format)
-            srs_artifact.extracted_content = json.dumps(srs_parsed)
-            db.commit()
-
-        requirements = srs_parsed.get('requirements', [])
-
-        # ── Parse UML artifacts ────────────────────────────────────────────
-        usecase_model = None
-        class_model = None
-        sequence_model = None
-
-        if usecase_artifact:
-            content = _read_artifact_content(usecase_artifact)
-            usecase_model = parse_plantuml(content, 'usecase')
-            usecase_artifact.extracted_content = json.dumps(usecase_model)
-            db.commit()
-
-        if class_artifact:
-            content = _read_artifact_content(class_artifact)
-            class_model = parse_plantuml(content, 'class')
-            class_artifact.extracted_content = json.dumps(class_model)
-            db.commit()
-
-        if sequence_artifact:
-            content = _read_artifact_content(sequence_artifact)
-            sequence_model = parse_plantuml(content, 'sequence')
-            sequence_artifact.extracted_content = json.dumps(sequence_model)
-            db.commit()
-
-        # ── Deterministic checks ──────────────────────────────────────────
-        all_findings: List[Dict] = []
-        all_findings += run_all_srs_checks(srs_parsed)
-
-        if usecase_model:
-            all_findings += run_all_uml_checks(usecase_model)
-        if class_model:
-            all_findings += run_all_uml_checks(class_model)
-        if sequence_model:
-            all_findings += run_all_uml_checks(sequence_model, class_model)
-
-        # ── LLM checks (run async checks from sync context) ──────────────
-        has_llm_error = False
-        if requirements:
+        artifacts = db.query(Artifact).filter_by(project_id=project_id).all()
+        srs = next((artifact for artifact in artifacts if artifact.artifact_type == "srs"), None)
+        extracted, models, warnings = {}, {}, []
+        parsed = await run_in_threadpool(extract_srs, srs) if srs else {"sections": [], "requirements": [], "warnings": ["Upload an SRS document before analysis."]}
+        if srs:
+            extracted[srs.id] = source_evidence(parsed, srs)
+        warnings.extend(parsed.get("warnings", []))
+        requirements = parsed["requirements"]
+        if project.analysis_profile == "architecture":
+            for kind in ["usecase", "class", "sequence"]:
+                artifact = next((item for item in artifacts if item.artifact_type == f"uml_{kind}"), None)
+                if not artifact:
+                    warnings.append(f"The architecture profile requires a {kind} diagram.")
+                    continue
+                model = await run_in_threadpool(validate_isolated, read_bounded(artifact), "diagram.puml", extract=f"uml:{kind}:artifact-{artifact.id}")
+                models[kind] = source_evidence(model, artifact)
+                extracted[artifact.id] = models[kind]
+                warnings.extend(f"{artifact.original_filename}: {message}" for message in model.get("warnings", []))
+        findings = run_all_srs_checks(parsed)
+        for kind, model in models.items():
+            findings.extend(run_all_uml_checks(model, models.get("class") if kind == "sequence" else None))
+        if project.analysis_mode == "ai" and requirements:
             try:
-                llm_findings = await check_testability(requirements, db=db, project_id=project_id)
-                all_findings += llm_findings
-                conflict_findings = await check_conflicts(requirements, db=db, project_id=project_id)
-                all_findings += conflict_findings
-                
+                findings.extend(await check_testability(requirements, db=db, project_id=project_id))
+                findings.extend(await check_conflicts(requirements, db=db, project_id=project_id))
                 from .repair import agentic_repair_loop
-                await agentic_repair_loop(all_findings, db=db, project_id=project_id)
-            except Exception as e:
-                has_llm_error = True
-                import logging
-                logging.getLogger(__name__).warning(f"LLM failure: {e}")
-                all_findings.append({
-                    'rule_id': 'SYS-WARN', 'severity': 'minor', 'quoted_text': None,
-                    'explanation': f'Warning: LLM check failed: {e}',
-                    'requirement_id': None, 'finding_type': 'system', 'artifact_type': 'srs'
-                })
+                await agentic_repair_loop(findings, db=db, project_id=project_id)
+            except Exception as error:
+                logging.getLogger(__name__).warning("Requested AI analysis failed (%s)", type(error).__name__)
+                warnings.append("Requested AI checks did not finish. Deterministic results remain available; retry AI analysis later.")
+        for warning in warnings:
+            findings.append({"rule_id": "SYS-WARN", "severity": "minor", "explanation": warning,
+                "finding_type": "system", "artifact_type": "extraction"})
+        usecase, sequence, classes = models.get("usecase"), models.get("sequence"), models.get("class")
+        candidates = build_trace_links(requirements, usecase, sequence, classes) if models else []
+        findings.extend(check_traceability(requirements, usecase, sequence, classes, candidates))
 
-        # ── Traceability ──────────────────────────────────────────────────
-        trace_link_dicts: List[Dict] = []
+        # Resolve old display-name endpoints only when the match is unambiguous.
+        # Invalid decisions remain visible as stale instead of silently becoming evidence.
+        aliases = endpoint_map(requirements, models)
+        decisions = db.query(TraceLink).filter(TraceLink.project_id == project_id, TraceLink.status != "suggested").all()
+        decision_map = {}
+        for decision in decisions:
+            source = aliases.get((decision.source_type, decision.source_id), set())
+            target = aliases.get((decision.target_type, decision.target_id), set())
+            decision.is_stale = len(source) != 1 or len(target) != 1
+            if not decision.is_stale:
+                decision.source_id, decision.target_id = next(iter(source)), next(iter(target))
+                decision_map[(decision.source_type, decision.source_id, decision.target_type, decision.target_id)] = decision
+        reviewed = []
+        for candidate in candidates:
+            key = tuple(candidate[field] for field in ["source_type", "source_id", "target_type", "target_id"])
+            decision = decision_map.get(key)
+            reviewed.append({**candidate, "status": decision.status if decision else "suggested"})
+        obligations = trace_obligations(requirements, usecase, sequence, classes, candidates)
+        reviewed_obligations = trace_obligations(requirements, usecase, sequence, classes, reviewed)
+        for original, review in zip(obligations, reviewed_obligations):
+            original["confirmed"] = review["confirmed"]
+        uml_count = sum(len(model.get(collection, [])) for model in models.values() for collection in ["actors", "use_cases", "classes", "messages"])
+        scores = compute_scores(findings, candidates, len(requirements), uml_count,
+            profile=project.analysis_profile, complete=not warnings, obligations=obligations)
+        scores["details"]["analysis_mode"] = project.analysis_mode
+        scores["details"]["warnings"] = warnings
 
-        if usecase_model:
-            trace_link_dicts = build_trace_links(requirements, usecase_model, sequence_model, class_model)
-            
-            # Fetch persistent links from DB (confirmed/rejected)
-            persistent_links = db.query(TraceLink).filter(TraceLink.project_id == project_id).all()
-            persistent_keys = {(l.source_type, l.source_id, l.target_type, l.target_id): l.status for l in persistent_links}
-            
-            final_links_for_check = []
-            final_links_to_save = []
-            
-            # Incorporate newly suggested links if they don't exist
-            for tl in trace_link_dicts:
-                k = (tl['source_type'], tl['source_id'], tl['target_type'], tl['target_id'])
-                if k not in persistent_keys:
-                    final_links_for_check.append(tl)
-                    final_links_to_save.append(tl)
-                    
-            # Incorporate persistent links for checking
-            for l in persistent_links:
-                final_links_for_check.append({
-                    'source_type': l.source_type,
-                    'source_id': l.source_id,
-                    'target_type': l.target_type,
-                    'target_id': l.target_id,
-                    'status': l.status
-                })
-                
-            trace_link_dicts = final_links_to_save  # Only save new ones
-                
-            trace_findings = check_traceability(requirements, usecase_model, sequence_model, class_model, final_links_for_check)
-            all_findings += trace_findings
-
-        # ── Save findings ─────────────────────────────────────────────────
-        for fd in all_findings:
-            finding = Finding(
-                project_id=project_id,
-                rule_id=fd['rule_id'],
-                severity=fd['severity'],
-                quoted_text=fd.get('quoted_text'),
-                explanation=fd['explanation'],
-                artifact_type=fd.get('artifact_type'),
-                requirement_id=fd.get('requirement_id'),
-                finding_type=fd.get('finding_type', 'deterministic'),
-                rewrite_suggestion=fd.get('rewrite_suggestion'),
-                rewrite_attempts=fd.get('rewrite_attempts', 0),
-                rewrite_passed=fd.get('rewrite_passed', False)
-            )
-            db.add(finding)
-
-        # ── Save trace links ──────────────────────────────────────────────
-        for tl in trace_link_dicts:
-            link = TraceLink(
-                project_id=project_id,
-                source_type=tl['source_type'],
-                source_id=tl['source_id'],
-                target_type=tl['target_type'],
-                target_id=tl['target_id'],
-                status='suggested'
-            )
-            db.add(link)
-
+        # Publish only after parsing/checks/scoring succeeded. LLM logging may have
+        # committed earlier, but it cannot delete or partially publish this report.
+        db.query(Finding).filter_by(project_id=project_id).delete()
+        db.query(TraceLink).filter_by(project_id=project_id, status="suggested").delete()
+        finding_fields = {column.name for column in Finding.__table__.columns} - {"id", "project_id", "created_at"}
+        for result in findings:
+            if not result.get("source_ref") and result.get("requirement_id"):
+                matches = [req for req in requirements if req.get("id") == result["requirement_id"]]
+                if len(matches) == 1:
+                    result.update(source_ref=matches[0].get("source_ref"), source_spans=matches[0].get("source_spans"), element_id=matches[0].get("internal_id"))
+            db.add(Finding(project_id=project_id, **{key: value for key, value in result.items() if key in finding_fields}))
+        for candidate in candidates:
+            key = tuple(candidate[field] for field in ["source_type", "source_id", "target_type", "target_id"])
+            if key in decision_map:
+                decision = decision_map[key]
+                for field in ["source_label", "target_label", "confidence", "origin", "evidence"]:
+                    setattr(decision, field, candidate[field])
+            else:
+                db.add(TraceLink(project_id=project_id, **candidate))
+        for artifact in artifacts:
+            if artifact.id in extracted:
+                artifact.extracted_content = json.dumps(extracted[artifact.id])
+        score = db.query(QualityScore).filter_by(project_id=project_id).first()
+        if not score:
+            score = QualityScore(project_id=project_id); db.add(score)
+        for key, value in scores.items():
+            setattr(score, key, value)
+        from datetime import datetime, timezone
+        score.computed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        project.status = "done" if scores["details"]["complete"] else "partial"
         db.commit()
-
-        # ── Compute and save score ────────────────────────────────────────
-        
-        req_count = len(requirements)
-        uml_elements_count = 0
-        if usecase_model:
-            uml_elements_count += len(usecase_model.get('use_cases', [])) + len(usecase_model.get('actors', []))
-        if class_model:
-            uml_elements_count += len(class_model.get('classes', []))
-        if sequence_model:
-            uml_elements_count += len(sequence_model.get('messages', []))
-            
-        link_count = len(trace_link_dicts)
-        
-        scores = compute_scores(all_findings, trace_link_dicts, req_count, uml_elements_count, link_count)
-
-        existing_score = db.query(QualityScore).filter(QualityScore.project_id == project_id).first()
-        if existing_score:
-            existing_score.requirements_score = scores['requirements_score']
-            existing_score.uml_score = scores['uml_score']
-            existing_score.traceability_score = scores['traceability_score']
-            existing_score.overall_score = scores['overall_score']
-        else:
-            score_obj = QualityScore(
-                project_id=project_id,
-                **scores
-            )
-            db.add(score_obj)
-
-        project.status = "partial" if has_llm_error else "done"
-        db.commit()
-
-    except Exception as e:
-        try:
-            project = db.query(Project).filter(Project.id == project_id).first()
-            if project:
-                project.status = "error"
-                db.commit()
-        except Exception:
-            pass
-        raise e
+    except Exception as error:
+        db.rollback()
+        project = db.get(Project, project_id)
+        if project:
+            project.status = "error"
+            project.analysis_error = "Analysis could not finish. Check the uploaded documents and retry. Previous results have been preserved."
+            db.commit()
+        logging.getLogger(__name__).warning("Analysis failed (%s)", type(error).__name__)
     finally:
         db.close()
-
-
-def _read_artifact_content(artifact: Artifact) -> str:
-    """Read raw text content from an artifact file."""
-    with open(artifact.file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        return f.read()
-

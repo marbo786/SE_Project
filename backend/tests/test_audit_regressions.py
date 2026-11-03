@@ -23,7 +23,7 @@ def test_foreign_resources_are_private(client, headers, db_session):
     link = TraceLink(project_id=project.id, source_type="requirement", source_id="FR-1", target_type="usecase", target_id="Login")
     db_session.add(link)
     db_session.commit()
-    for path in [f"/projects/{project.id}", f"/findings/project/{project.id}", f"/traceability/project/{project.id}", f"/traceability/project/{project.id}/export"]:
+    for path in [f"/projects/{project.id}", f"/projects/{project.id}/extraction", f"/findings/project/{project.id}", f"/traceability/project/{project.id}", f"/traceability/project/{project.id}/export"]:
         assert client.get(path, headers=headers).status_code == 404, path
     assert client.patch(f"/traceability/{link.id}", headers=headers, json={"status": "rejected"}).status_code == 404
     assert client.get(f"/projects/{project.id}/compare?with_version=1", headers=headers).status_code == 404
@@ -38,7 +38,6 @@ def test_invalid_docx_rejected(client, headers):
     pid = client.post("/projects/", headers=headers, json={"name": "Test"}).json()["id"]
     assert client.post(f"/projects/{pid}/upload-srs", headers=headers, files={"file": ("fake.docx", b"PKgarbage")}).status_code == 400
 
-@pytest.mark.xfail(reason="M2: table cells split into separate requirements")
 def test_table_requirement_is_one_record(tmp_path):
     doc = Document()
     table = doc.add_table(rows=1, cols=2)
@@ -51,22 +50,18 @@ def test_table_requirement_is_one_record(tmp_path):
     assert requirements[0]["id"] == "FR-1"
     assert "save a record" in requirements[0]["text"]
 
-@pytest.mark.xfail(reason="M2: optional requirement ID used as string")
 def test_missing_id_trace_does_not_crash():
     build_trace_links([{"id": None, "text": "The system shall login."}], {"use_cases": [{"name": "Login"}]})
 
-@pytest.mark.xfail(reason="M2: use-case alias not resolved")
 def test_usecase_alias_is_connected():
     model = parse_plantuml('@startuml\nactor User\nusecase "Login" as UC1\nUser --> UC1\n@enduml', "usecase")
     assert not run_all_uml_checks(model)
 
-@pytest.mark.xfail(reason="M2: visibility marker hides class operation")
 def test_public_operation_is_defined():
     classes = parse_plantuml("class Auth {\n+login()\n}", "class")
     sequence = parse_plantuml("participant Auth\nUser -> Auth: login()", "sequence")
     assert not run_all_uml_checks(sequence, classes)
 
-@pytest.mark.xfail(reason="M2: absent evidence earns 60 points")
 def test_empty_input_has_no_score():
     findings = run_all_srs_checks({"requirements": [], "sections": []})
     assert compute_scores(findings, [], 0, 0, 0)["overall_score"] is None

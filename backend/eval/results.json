@@ -1,0 +1,83 @@
+{
+  "examples": 33,
+  "rules": {
+    "FR-401": {
+      "tp": 10,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "FR-402": {
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "FR-409": {
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "FR-410": {
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "FR-411": {
+      "tp": 3,
+      "fp": 0,
+      "fn": 7,
+      "precision": 1.0,
+      "recall": 0.3,
+      "f1": 0.4615384615384615
+    }
+  },
+  "false_negatives": [
+    [
+      "example-2",
+      "FR-411",
+      1
+    ],
+    [
+      "example-3",
+      "FR-411",
+      1
+    ],
+    [
+      "example-5",
+      "FR-411",
+      1
+    ],
+    [
+      "example-7",
+      "FR-411",
+      1
+    ],
+    [
+      "example-9",
+      "FR-411",
+      1
+    ],
+    [
+      "example-10",
+      "FR-411",
+      1
+    ],
+    [
+      "example-27",
+      "FR-411",
+      1
+    ]
+  ],
+  "false_positives": []
+}

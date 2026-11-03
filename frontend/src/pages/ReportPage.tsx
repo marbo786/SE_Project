@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
 import { projectsApi, findingsApi, traceabilityApi, apiError } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
@@ -40,6 +41,19 @@ interface Project {
   version: number
   status: string
   created_at: string
+  analysis_profile: string
+  analysis_mode: string
+  analysis_error?: string
+  quality_score?: {
+    overall_score: number | null
+    computed_at: string
+    details?: {
+      rubric_version: string
+      profile: string
+      note: string
+      categories: Record<string, { applicable: boolean; percentage: number | null; weight: number; eligible_count: number; contribution: number | null }>
+    }
+  }
 }
 
 interface Finding {
@@ -51,6 +65,8 @@ interface Finding {
   artifact_type?: string
   requirement_id?: string
   finding_type?: string
+  source_ref?: string
+  source_spans?: { artifact_id?: number }[]
   rewrite_suggestion?: string
   rewrite_passed?: boolean
   rewrite_attempts?: number
@@ -62,6 +78,11 @@ interface TraceLink {
   source_type: string
   target_id: string
   target_type: string
+  source_label?: string
+  target_label?: string
+  origin?: string
+  confidence?: number
+  is_stale?: boolean
   status: string
 }
 
@@ -131,6 +152,7 @@ function FindingItem({ finding }: { finding: Finding }) {
         <button
           type="button"
           className="mt-0.5 text-[#777981] hover:text-[#E7E7E9]"
+          aria-expanded={expanded}
           aria-label={expanded ? "Collapse finding" : "Expand finding"}
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -173,6 +195,7 @@ function FindingItem({ finding }: { finding: Finding }) {
       {/* Expanded Technical Inspection Details */}
       {expanded && (
         <div className="border-t border-[#303136] bg-[#17181B] p-3 space-y-3 text-xs">
+          {finding.source_ref && <p className="text-sm text-[#A1A1AA]">Source: {finding.source_ref}{finding.source_spans?.[0]?.artifact_id ? ` · Artifact ${finding.source_spans[0].artifact_id}` : ''}</p>}
           {/* Problematic Quoted Text */}
           {finding.quoted_text && (
             <div>
@@ -200,7 +223,7 @@ function FindingItem({ finding }: { finding: Finding }) {
                         ? "text-[#68A86C] border-[#4E8752]/40 bg-[#4E8752]/10"
                         : "text-[#E06C6C] border-[#C04848]/40 bg-[#C04848]/10"
                     )}>
-                      {finding.rewrite_passed ? 'VERIFIED PASSED' : 'CHECK FAILED'}
+                      {finding.rewrite_passed ? 'CHECKS PASSED · REVIEW REQUIRED' : 'REVIEW REQUIRED'}
                     </span>
                   )}
                   {finding.rewrite_attempts !== undefined && finding.rewrite_attempts > 0 && (
@@ -229,40 +252,42 @@ export default function ReportPage() {
   const { id } = useParams()
   const projectId = Number(id)
 
-  const [project, setProject] = useState<Project | null>(null)
-  const [findings, setFindings] = useState<Finding[]>([])
-  const [traceLinks, setTraceLinks] = useState<TraceLink[]>([])
-  const [compareData, setCompareData] = useState<CompareData | null>(null)
+  const queryClient = useQueryClient()
+  const report = useQuery({
+    queryKey: ['project-report', projectId],
+    enabled: Number.isInteger(projectId) && projectId > 0,
+    queryFn: async () => {
+      const [project, findings, links] = await Promise.all([projectsApi.get(projectId), findingsApi.getByProject(projectId), traceabilityApi.getByProject(projectId)])
+      return { project: project.data as Project, findings: findings.data as Finding[], links: links.data as TraceLink[] }
+    },
+    refetchInterval: query => query.state.data?.project.status === 'analyzing' ? 1500 : false,
+  })
+  const project = report.data?.project ?? null
+  const findings = report.data?.findings ?? []
+  const traceLinks = report.data?.links ?? []
+  const loading = report.isPending
   const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'traceability' | 'compare'>('findings')
-  const [loading, setLoading] = useState(true)
+  const comparison = useQuery({
+    queryKey: ['project-comparison', projectId, project?.version, project?.status],
+    enabled: !!project && project.version > 1 && activeTab === 'compare',
+    queryFn: async () => (await projectsApi.compare(projectId, project!.version - 1)).data as CompareData,
+  })
+  const compareData = comparison.data
+  const rerun = useMutation({
+    mutationFn: () => project?.status === 'pending' ? projectsApi.analyze(projectId) : projectsApi.reanalyze(projectId),
+    onSuccess: () => { setActionError(''); void queryClient.invalidateQueries({ queryKey: ['project-report', projectId] }) },
+    onError: error => setActionError(apiError(error, 'Analysis could not start.')),
+  })
 
   // Filters
   const [findingSearch, setFindingSearch] = useState('')
   const [severityFilter, setSeverityFilter] = useState<string>('all')
   const [traceFilter, setTraceFilter] = useState<string>('all')
 
-  const fetchTraceLinks = useCallback(() => {
-    traceabilityApi.getByProject(projectId).then(res => setTraceLinks(res.data)).catch(() => {})
-  }, [projectId])
-
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      projectsApi.get(projectId).then(res => {
-        setProject(res.data)
-        if (res.data.version > 1) {
-          projectsApi.compare(projectId, res.data.version - 1).then(cRes => setCompareData(cRes.data)).catch(() => {})
-        }
-      }),
-      findingsApi.getByProject(projectId).then(res => setFindings(res.data)),
-      fetchTraceLinks(),
-    ]).finally(() => setLoading(false))
-  }, [projectId, fetchTraceLinks])
-
   const updateLinkStatus = async (linkId: number, status: string) => {
     try {
       await traceabilityApi.update(linkId, status)
-      fetchTraceLinks()
+      await queryClient.invalidateQueries({ queryKey: ['project-report', projectId] })
     } catch (e) {
       setActionError(apiError(e))
     }
@@ -324,6 +349,8 @@ export default function ReportPage() {
     return counts
   }, [traceLinks])
 
+  if (!Number.isInteger(projectId) || projectId < 1) return <p role="alert">This project link is invalid.</p>
+  if (report.isError && !project) return <div role="alert" className="space-y-3"><p>{apiError(report.error, 'The report could not be loaded.')}</p><Button onClick={() => report.refetch()}>Try again</Button></div>
   if (loading) {
     return (
       <div className="space-y-4">
@@ -337,6 +364,26 @@ export default function ReportPage() {
   return (
     <div className="space-y-4">
       {actionError && <p role="alert" className="p-3 border border-red-400 text-red-300">{actionError}</p>}
+      {report.isError && <p role="alert">Unable to refresh. Showing the last loaded report. <button onClick={() => report.refetch()}>Retry</button></p>}
+      {comparison.isError && activeTab === 'compare' && <p role="alert">{apiError(comparison.error, 'Comparison is unavailable.')} <button onClick={() => comparison.refetch()}>Retry</button></p>}
+      {project?.status === 'analyzing' && <p role="status" aria-live="polite" className="p-4 border border-blue-400 rounded">Analysis is running. This report updates automatically. Any results below are from the previous completed analysis.</p>}
+      {project?.status === 'pending' && <p role="status" className="p-4 border rounded">This project has not been analyzed yet.</p>}
+      {project?.status === 'partial' && <p role="status" className="p-4 border border-amber-400 rounded">Some inputs or requested checks could not be fully evaluated. Review the warnings below; no final grade is assigned.</p>}
+      {project?.analysis_error && <p role="alert" className="p-4 border border-red-400 rounded">{project.analysis_error}</p>}
+      {project?.quality_score && <section aria-label="Quality score" className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="font-semibold">{project.quality_score.details?.profile === 'architecture' ? 'Requirements and architecture' : 'Requirements'} assessment</h2>
+          <p className="text-2xl font-semibold">{project.quality_score.overall_score == null ? 'Not graded' : `${project.quality_score.overall_score.toFixed(1)} / 100`}</p>
+        </div>
+        {project.quality_score.details ? <>
+          <div className="grid sm:grid-cols-3 gap-4">{Object.entries(project.quality_score.details.categories).map(([name, category]) => <div key={name}>
+            <h3 className="capitalize text-sm text-[#A1A1AA]">{name}</h3>
+            <p>{!category.applicable ? 'Not applicable' : category.percentage == null ? 'Not evaluated' : `${category.percentage.toFixed(1)}%`}</p>
+            {category.applicable && <p className="text-sm text-[#A1A1AA]">{category.eligible_count} eligible · {category.weight}% weight</p>}
+          </div>)}</div>
+          <p className="text-sm text-[#A1A1AA]">{project.quality_score.details.note} Rubric {project.quality_score.details.rubric_version}; {project.analysis_mode} mode.</p>
+        </> : <p className="text-sm text-amber-300">Legacy score: this result predates the current rubric and is not comparable to new assessments.</p>}
+      </section>}
       {/* Breadcrumb path */}
       <Breadcrumbs
         items={[
@@ -364,11 +411,14 @@ export default function ReportPage() {
               </span>
             </div>
             <p className="text-[11px] font-mono text-[#777981] mt-0.5">
-              ID: {project.id} • Evaluated: {formatDate(project.created_at)}
+              ID: {project.id} • {project.quality_score ? 'Evaluated' : 'Created'}: {formatDate(project.quality_score?.computed_at || project.created_at)}
             </p>
           </div>
 
           <div className="flex items-center gap-1.5 print:hidden">
+            <Button size="sm" disabled={project.status === 'analyzing' || rerun.isPending} onClick={() => rerun.mutate()}>
+              {project.status === 'analyzing' ? 'Analyzing…' : rerun.isPending ? 'Starting…' : project.status === 'pending' ? 'Analyze' : 'Run again'}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()}>
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Print
@@ -451,9 +501,9 @@ export default function ReportPage() {
           {filteredFindings.length === 0 ? (
             <EmptyState
               icon={ShieldAlert}
-              title={findings.length === 0 ? 'No defects recorded' : 'No findings match query'}
+              title={findings.length === 0 ? (project?.status === 'done' ? 'No findings in the evaluated scope' : 'Results are not available yet') : 'No findings match query'}
               description={findings.length === 0
-                ? 'All requirement verification rules evaluated successfully without violations.'
+                ? 'An empty result is not proof of correctness. Check the analysis status and evaluated scope above.'
                 : 'Clear or modify your search and severity filters to view other findings.'
               }
               action={findings.length > 0 ? {
@@ -537,7 +587,7 @@ export default function ReportPage() {
                     filteredTraceLinks.map(t => (
                       <tr key={t.id} className="hover:bg-[#24252A]/40 transition-none">
                         <td className="py-2.5 px-3.5 font-mono">
-                          <span className="font-semibold text-[#E7E7E9]">{t.source_id}</span>
+                          <span className="font-semibold text-[#E7E7E9]">{t.source_label || t.source_id}</span>
                           <span className="text-[10px] text-[#777981] ml-1.5">[{t.source_type}]</span>
                         </td>
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
@@ -547,15 +597,16 @@ export default function ReportPage() {
                               traceStatusColor(t.status)
                             )}
                           >
-                            {t.status}
+                            {t.is_stale ? 'stale' : t.status}
                           </span>
                         </td>
                         <td className="py-2.5 px-3 font-mono">
-                          <span className="font-semibold text-[#E7E7E9]">{t.target_id}</span>
+                          <span className="font-semibold text-[#E7E7E9]">{t.target_label || t.target_id}</span>
                           <span className="text-[10px] text-[#777981] ml-1.5">[{t.target_type}]</span>
+                          <p className="text-xs text-[#A1A1AA] mt-1">{t.origin?.replace(/_/g, ' ')} {t.confidence != null && `· similarity ${t.confidence.toFixed(2)} (not a probability)`}</p>
                         </td>
                         <td className="py-2.5 px-3.5 text-right whitespace-nowrap print:hidden">
-                          {t.status === 'suggested' ? (
+                          {t.status === 'suggested' && !t.is_stale ? (
                             <div className="flex items-center justify-end gap-1 font-mono">
                               <button
                                 onClick={() => updateLinkStatus(t.id, 'confirmed')}

@@ -25,6 +25,8 @@ def update_trace_link(link_id: int, update_data: TraceLinkUpdate, db: Session = 
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
     require_project_access(db, current_user, link.project_id)
+    if link.is_stale:
+        raise HTTPException(409, "This link refers to older or ambiguous inputs and must be recreated")
     
     if update_data.status not in ["suggested", "confirmed", "rejected"]:
         raise HTTPException(status_code=400, detail="Invalid status")
@@ -41,10 +43,10 @@ def export_traceability_matrix(project_id: int, db: Session = Depends(get_db), c
     
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Source Type", "Source ID", "Target Type", "Target ID", "Status"])
+    writer.writerow(["Source Type", "Source ID", "Target Type", "Target ID", "Status", "Source Label", "Target Label", "Origin", "Similarity (not probability)", "Stale"])
     
     for link in links:
-        writer.writerow([safe_csv_cell(value) for value in [link.source_type, link.source_id, link.target_type, link.target_id, link.status]])
+        writer.writerow([safe_csv_cell(value) for value in [link.source_type, link.source_id, link.target_type, link.target_id, link.status, link.source_label, link.target_label, link.origin, link.confidence, link.is_stale]])
         
     return Response(
         content=output.getvalue(),
@@ -54,5 +56,5 @@ def export_traceability_matrix(project_id: int, db: Session = Depends(get_db), c
 
 
 def safe_csv_cell(value):
-    text = str(value or "")
+    text = str("" if value is None else value)
     return "'" + text if text.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")) or text.startswith(("\t", "\r", "\n")) else text

@@ -9,6 +9,12 @@ class TraceLinkOut(BaseModel):
     target_type: str
     target_id: str
     status: str
+    source_label: Optional[str] = None
+    target_label: Optional[str] = None
+    confidence: Optional[float] = None
+    origin: str = "legacy"
+    evidence: Optional[dict] = None
+    is_stale: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
