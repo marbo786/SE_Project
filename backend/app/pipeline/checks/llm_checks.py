@@ -3,7 +3,7 @@ LLM-assisted requirement checks: testability and conflict detection.
 """
 import json
 from typing import List, Dict, Optional, Any
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, ConfigDict
 from ...llm.engine import call_llm
 from ...pipeline.redactor import Redactor
 from ...core.config import get_yaml_config
@@ -11,35 +11,38 @@ from ...core.config import get_yaml_config
 class LLMCheckError(Exception):
     pass
 
-class TestabilityResult(BaseModel):
-    requirement_id: Optional[str]
+class StrictResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+class TestabilityResult(StrictResponse):
+    requirement_id: str
     requirement_text: Optional[str] = None
     testable: bool
     reason: Optional[str] = None
 
-class TestabilityResponse(BaseModel):
+class TestabilityResponse(StrictResponse):
     results: List[TestabilityResult]
 
-class ConflictResult(BaseModel):
+class ConflictResult(StrictResponse):
     req_id_1: str
     req_id_2: str
     explanation: str
 
-class ConflictResponse(BaseModel):
+class ConflictResponse(StrictResponse):
     conflicts: List[ConflictResult]
 
-class RewriteResult(BaseModel):
+class RewriteResult(StrictResponse):
     requirement_id: str
     rewrite_suggestion: str
 
-class RewriteResponse(BaseModel):
+class RewriteResponse(StrictResponse):
     rewrites: List[RewriteResult]
 
 TESTABILITY_SYSTEM_PROMPT = """You are an expert software requirements analyst.
 Your task is to assess whether each given requirement is testable.
 A testable requirement has a clear, specific, measurable expected behavior.
 Return a JSON object with a key 'results' containing a list. Each item has:
-- 'requirement_id': the ID of the requirement (or null if none)
+- 'requirement_id': the exact supplied occurrence ID; return every supplied ID exactly once
 - 'requirement_text': the text
 - 'testable': true or false
 - 'reason': brief explanation if not testable
@@ -82,9 +85,8 @@ async def _call_and_parse(system_prompt: str, user_prompt: str, model_cls, db=No
             return validated
         except (json.JSONDecodeError, ValidationError) as e:
             if attempt == 1:
-                raise LLMCheckError(f"LLM output validation failed: {str(e)}")
-            # On first attempt failure, continue and retry (we rely on call_llm retries internally, 
-            # but to bypass a bad cache we should ideally clear it, but here we just try one more time)
+                raise LLMCheckError("ai_output_validation_failed")
+            # Raw responses are not cached; this requests a fresh completion.
             pass
     raise LLMCheckError("LLM output validation failed after 2 attempts")
 
@@ -99,7 +101,7 @@ async def check_testability(requirements: List[Dict], db=None, project_id: int =
     reqs_for_llm = []
     for req in requirements:
         reqs_for_llm.append({
-            'requirement_id': req.get('id', 'UNKNOWN'),
+            'requirement_id': f'R{len(reqs_for_llm)}',
             'text': redactor.redact(req.get('text', ''))
         })
 
@@ -107,16 +109,21 @@ async def check_testability(requirements: List[Dict], db=None, project_id: int =
 
     validated = await _call_and_parse(TESTABILITY_SYSTEM_PROMPT, user_prompt, TestabilityResponse, db, project_id)
     
+    expected = {f"R{i}": req for i, req in enumerate(requirements)}
+    received = [result.requirement_id for result in validated.results]
+    if len(received) != len(expected) or set(received) != set(expected):
+        raise LLMCheckError("ai_requirement_coverage_invalid")
     for result in validated.results:
         if not result.testable:
             req_id = result.requirement_id
-            original = next((r for r in requirements if r.get('id') == req_id), {})
+            original = expected[req_id]
             findings.append({
                 'rule_id': 'FR-403',
                 'severity': severity,
                 'quoted_text': original.get('text', result.requirement_text or ''),
                 'explanation': f"Requirement is not testable: {redactor.unredact(result.reason) if result.reason else 'vague or unmeasurable'}",
-                'requirement_id': req_id,
+                'requirement_id': original.get('id'),
+                'source_ref': original.get('source_ref'),
                 'finding_type': 'llm',
                 'artifact_type': 'srs',
                 'rewrite_suggestion': None
@@ -134,7 +141,7 @@ async def check_conflicts(requirements: List[Dict], db=None, project_id: int = N
     reqs_for_llm = []
     for req in requirements:
         reqs_for_llm.append({
-            'id': req.get('id', 'UNKNOWN'),
+            'id': f'R{len(reqs_for_llm)}',
             'text': redactor.redact(req.get('text', ''))
         })
 
@@ -142,13 +149,20 @@ async def check_conflicts(requirements: List[Dict], db=None, project_id: int = N
 
     validated = await _call_and_parse(CONFLICT_SYSTEM_PROMPT, user_prompt, ConflictResponse, db, project_id)
     
+    expected = {f"R{i}": req for i, req in enumerate(requirements)}
+    seen = set()
     for conflict in validated.conflicts:
+        pair = tuple(sorted((conflict.req_id_1, conflict.req_id_2)))
+        if any(key not in expected for key in pair) or pair[0] == pair[1] or pair in seen:
+            raise LLMCheckError("ai_conflict_reference_invalid")
+        seen.add(pair)
         findings.append({
             'rule_id': 'FR-404',
             'severity': severity,
-            'quoted_text': f"{conflict.req_id_1} vs {conflict.req_id_2}",
+            'quoted_text': expected[conflict.req_id_1].get('text', ''),
             'explanation': redactor.unredact(conflict.explanation) if conflict.explanation else 'Requirements conflict.',
-            'requirement_id': conflict.req_id_1,
+            'requirement_id': expected[conflict.req_id_1].get('id'),
+            'source_ref': expected[conflict.req_id_1].get('source_ref'),
             'finding_type': 'llm',
             'artifact_type': 'srs',
             'rewrite_suggestion': None

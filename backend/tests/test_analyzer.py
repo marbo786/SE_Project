@@ -10,7 +10,8 @@ class SuccessProvider(BaseLLMProvider):
     provider_name = "mock_success"
     default_model = "mock"
     async def complete(self, *args, **kwargs):
-        return LLMResponse('{"results": [{"requirement_id": "FR-1", "testable": true}], "conflicts": []}', 10, 10, 10, self.provider_name, self.default_model)
+        content = '{"results": [{"requirement_id": "R0", "testable": true}]}' if "testab" in args[0] else '{"conflicts": []}'
+        return LLMResponse(content, 10, 10, 10, self.provider_name, self.default_model)
 
 class FailProvider(SuccessProvider):
     async def complete(self, *args, **kwargs):

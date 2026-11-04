@@ -66,7 +66,6 @@ def test_empty_input_has_no_score():
     findings = run_all_srs_checks({"requirements": [], "sections": []})
     assert compute_scores(findings, [], 0, 0, 0)["overall_score"] is None
 
-@pytest.mark.xfail(reason="M5: meaningless rewrite passes lexical checks")
 async def test_meaningless_rewrite_cannot_pass(monkeypatch):
     from app.pipeline import repair
     async def fake_call(*args, **kwargs):
