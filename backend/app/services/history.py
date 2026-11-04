@@ -230,6 +230,8 @@ def start_run(db, project, revision, actor_id, *, idempotency_key=None, expected
     run = AnalysisRun(project_id=project.id, revision_id=revision.id, requested_by=actor_id,
         input_snapshot=snapshot, input_hash=input_hash, versions=VERSIONS.copy(), idempotency_key=idempotency_key)
     db.add(run); db.flush()
+    from .jobs import enqueue
+    enqueue(db, run)
     project.latest_run_id, project.status, project.analysis_error = run.id, "analyzing", None
     project.analysis_profile, project.analysis_mode = revision.analysis_profile, revision.analysis_mode
     audit(db, project, actor_id, "analysis_requested", run_id=run.id, revision_id=revision.id)
@@ -239,6 +241,8 @@ def start_run(db, project, revision, actor_id, *, idempotency_key=None, expected
 def run_summary(run):
     return {"id": run.id, "project_id": run.project_id, "revision_id": run.revision_id,
         "has_report": run.report is not None,
+        "attempt_count": run.attempt_count, "cancel_requested": run.cancel_requested,
+        "heartbeat_at": iso_utc(run.heartbeat_at),
         "status": run.status, "stage": run.stage, "counts": run.counts, "versions": run.versions,
         "input_hash": run.input_hash, "error_code": run.error_code, "error_message": run.error_message,
         "created_at": iso_utc(run.created_at), "started_at": iso_utc(run.started_at), "finished_at": iso_utc(run.finished_at)}

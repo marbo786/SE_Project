@@ -73,3 +73,16 @@ uvicorn==0.54.0
 psycopg==3.3.7
 psycopg-binary==3.3.7
 tzdata==2026.6
+amqp==5.4.2
+billiard==4.3.2
+celery==5.6.3
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.4.1
+kombu==5.7.0
+prompt-toolkit==3.0.53
+python-dateutil==4.0.0
+redis==8.1.0
+tzlocal==5.4.5
+vine==5.1.0
+wcwidth==0.9.4

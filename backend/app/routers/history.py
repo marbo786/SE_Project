@@ -240,7 +240,6 @@ def analyze(project_id: int, revision_id: int, background_tasks: BackgroundTasks
     result = service.run_summary(run)
     service.remember(db, user.id, scope, idempotency_key, body, result)
     db.commit()
-    background_tasks.add_task(run_analysis_pipeline, project.id, run_id=run.id)
     return result
 
 
@@ -255,6 +254,16 @@ def runs(project_id: int, limit: int = Query(20, ge=1, le=100), offset: int = Qu
 @router.get('/runs/{run_id}')
 def run_status(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return service.run_summary(run_access(db, user, run_id))
+
+
+@router.post('/runs/{run_id}/cancel', status_code=202)
+def cancel(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from ..services.jobs import request_cancel
+    run = run_access(db, user, run_id)
+    project = require_project_access(db, user, run.project_id)
+    request_cancel(db, project, run, user.id)
+    db.commit()
+    return service.run_summary(run)
 
 
 @router.get('/runs/{run_id}/report')

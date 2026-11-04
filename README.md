@@ -9,7 +9,9 @@ SRS Reviewer is a hybrid rule-plus-LLM analyzer that parses your software requir
 ```mermaid
 flowchart TD
     A[Client Uploads SRS & UML] --> B[FastAPI Backend]
-    B --> C[Parser Stage]
+    B --> Q[(Run and transactional outbox)]
+    Q --> W[Worker with lease and checkpoints]
+    W --> C[Parser Stage]
     C --> D[Deterministic Checks]
     D --> E[LLM Checks & Repair Loop]
     E --> F[Traceability Linker]
@@ -37,10 +39,10 @@ See [the reproducible fixture results](backend/eval/results.md). The evaluator c
 
 Use **Python 3.13 and Node 24**. See [the development guide](docs/DEVELOPMENT.md) for setup, migrations, environment configuration, recovery email, Docker, and verification. On Windows run `./run_backend.ps1`, then `npm ci` and `npm run dev` from `frontend`.
 
-Implementation is proceeding in verified phases on `codex/project-improvements`. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and remaining acceptance gates. The evaluation above measures the original small deterministic dataset; it does not establish production accuracy or validate AI rewrites.
+Completed phases are merged into `main` after checks pass. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and remaining acceptance gates, and [worker operations](docs/JOBS.md) for durable execution and recovery. The evaluation above does not establish production accuracy or validate AI rewrites.
 
 ## Limitations
 
 - The parser depends on standard IEEE numbering and the keyword "shall". Requirements written entirely in narrative form without identifiers or standard keywords may be skipped.
 - PlantUML parsing relies on regex heuristics rather than a full grammar parser, so highly complex or nested diagram syntax might be misinterpreted.
-- The LLM repair loop relies on external APIs (Groq), which means analysis requires an active internet connection and is subject to rate limits and API downtime.
+- Deterministic analysis works offline. Optional AI checks use an external provider and remain subject to provider availability and the pending M5 validation work.

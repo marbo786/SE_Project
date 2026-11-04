@@ -10,7 +10,7 @@ from ..models.traceability import TraceLink
 from ..models.score import QualityScore
 from ..models.llm_log import LLMLog
 from ..models.history import (ProjectRevision, AnalysisRun, RunFinding, RunTraceLink,
-    RunQualityScore, ReviewDecision, Requirement, UMLElement, IdempotencyRecord)
+    RunQualityScore, ReviewDecision, Requirement, UMLElement, IdempotencyRecord, OutboxEvent, RunStage)
 from .history import ACTIVE, lock_project, audit
 
 
@@ -35,7 +35,7 @@ def purge_expired(db, *, apply=False, now=None):
         project.current_revision_id = project.latest_run_id = project.published_run_id = None
         db.flush()
         db.query(ReviewDecision).filter(ReviewDecision.run_id.in_(runs)).delete(synchronize_session=False)
-        for model in (RunFinding, RunTraceLink, RunQualityScore):
+        for model in (RunFinding, RunTraceLink, RunQualityScore, OutboxEvent, RunStage):
             db.query(model).filter(model.run_id.in_(runs)).delete(synchronize_session=False)
         for model in (Requirement, UMLElement):
             db.query(model).filter(model.revision_id.in_(revisions)).delete(synchronize_session=False)
