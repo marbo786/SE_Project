@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { projectsApi, findingsApi, traceabilityApi, API_URL } from '@/lib/api'
+import { useState, useMemo } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { projectsApi, historyApi, apiError, RunSummary } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/input'
@@ -40,6 +41,22 @@ interface Project {
   version: number
   status: string
   created_at: string
+  analysis_profile: string
+  analysis_mode: string
+  analysis_error?: string
+  current_revision_id: number
+  published_run_id?: string
+  latest_run_id?: string
+  quality_score?: {
+    overall_score: number | null
+    computed_at: string
+    details?: {
+      rubric_version: string
+      profile: string
+      note: string
+      categories: Record<string, { applicable: boolean; percentage: number | null; weight: number; eligible_count: number; contribution: number | null }>
+    }
+  }
 }
 
 interface Finding {
@@ -51,6 +68,8 @@ interface Finding {
   artifact_type?: string
   requirement_id?: string
   finding_type?: string
+  source_ref?: string
+  source_spans?: { artifact_id?: number }[]
   rewrite_suggestion?: string
   rewrite_passed?: boolean
   rewrite_attempts?: number
@@ -62,6 +81,11 @@ interface TraceLink {
   source_type: string
   target_id: string
   target_type: string
+  source_label?: string
+  target_label?: string
+  origin?: string
+  confidence?: number
+  is_stale?: boolean
   status: string
 }
 
@@ -69,6 +93,9 @@ interface CompareData {
   resolved_findings?: Finding[]
   new_findings?: Finding[]
   persistent_findings?: Finding[]
+  scores_comparable?: boolean
+  comparability_note?: string
+  requirements?: { added: unknown[]; deleted: unknown[]; changed: unknown[] }
 }
 
 /* ---------- Sub-components ---------- */
@@ -131,6 +158,7 @@ function FindingItem({ finding }: { finding: Finding }) {
         <button
           type="button"
           className="mt-0.5 text-[#777981] hover:text-[#E7E7E9]"
+          aria-expanded={expanded}
           aria-label={expanded ? "Collapse finding" : "Expand finding"}
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -173,6 +201,7 @@ function FindingItem({ finding }: { finding: Finding }) {
       {/* Expanded Technical Inspection Details */}
       {expanded && (
         <div className="border-t border-[#303136] bg-[#17181B] p-3 space-y-3 text-xs">
+          {finding.source_ref && <p className="text-sm text-[#A1A1AA]">Source: {finding.source_ref}{finding.source_spans?.[0]?.artifact_id ? ` · Artifact ${finding.source_spans[0].artifact_id}` : ''}</p>}
           {/* Problematic Quoted Text */}
           {finding.quoted_text && (
             <div>
@@ -200,7 +229,7 @@ function FindingItem({ finding }: { finding: Finding }) {
                         ? "text-[#68A86C] border-[#4E8752]/40 bg-[#4E8752]/10"
                         : "text-[#E06C6C] border-[#C04848]/40 bg-[#C04848]/10"
                     )}>
-                      {finding.rewrite_passed ? 'VERIFIED PASSED' : 'CHECK FAILED'}
+                      {finding.rewrite_passed ? 'CHECKS PASSED · REVIEW REQUIRED' : 'REVIEW REQUIRED'}
                     </span>
                   )}
                   {finding.rewrite_attempts !== undefined && finding.rewrite_attempts > 0 && (
@@ -225,67 +254,87 @@ function FindingItem({ finding }: { finding: Finding }) {
 
 /* ---------- Main Component ---------- */
 export default function ReportPage() {
+  const [actionError, setActionError] = useState('')
   const { id } = useParams()
   const projectId = Number(id)
+  const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
+  const selectedRun = params.get('run')
 
-  const [project, setProject] = useState<Project | null>(null)
-  const [findings, setFindings] = useState<Finding[]>([])
-  const [traceLinks, setTraceLinks] = useState<TraceLink[]>([])
-  const [compareData, setCompareData] = useState<CompareData | null>(null)
+  const queryClient = useQueryClient()
+  const report = useQuery({
+    queryKey: ['project-report', projectId, selectedRun],
+    enabled: Number.isInteger(projectId) && projectId > 0,
+    queryFn: async () => {
+      const [response, history] = await Promise.all([projectsApi.get(projectId), historyApi.runs(projectId)])
+      const live = response.data as Project
+      const runId = selectedRun || live.published_run_id || live.latest_run_id
+      const run = runId ? (await historyApi.run(runId)).data : null
+      if (run && run.project_id !== projectId) throw new Error('Run does not belong to this project')
+      const snapshot = run?.has_report ? (await historyApi.report(run.id)).data : null
+      const revision = run ? (await historyApi.revision(projectId, run.revision_id)).data : null
+      const reviews = (snapshot?.reviews || []) as { id: number; trace_id?: number; status: string }[]
+      const links = ((snapshot?.trace_links || []) as TraceLink[]).map(link => ({ ...link, status: reviews.find(review => review.trace_id === link.id)?.status || link.status }))
+      return { live, runs: history.data.items, run, reviews,
+        project: { ...live, version: revision?.number || live.version, quality_score: snapshot?.score,
+          analysis_mode: revision?.analysis_mode || live.analysis_mode,
+          status: run ? ({ completed: 'done', failed: 'error', queued: 'analyzing', running: 'analyzing' }[run.status] || run.status) : live.status,
+          analysis_error: run?.error_message || undefined } as Project,
+        findings: (snapshot?.findings || []) as Finding[], links }
+    },
+    refetchInterval: query => query.state.data?.live.status === 'analyzing' ? 1500 : false,
+  })
+  const project = report.data?.project ?? null
+  const findings = report.data?.findings ?? []
+  const traceLinks = report.data?.links ?? []
+  const loading = report.isPending
   const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'traceability' | 'compare'>('findings')
-  const [loading, setLoading] = useState(true)
+  const [previousRun, setPreviousRun] = useState('')
+  const comparison = useQuery({
+    queryKey: ['project-comparison', projectId, report.data?.run?.id, previousRun],
+    enabled: !!report.data?.run && !!previousRun && activeTab === 'compare',
+    queryFn: async () => (await historyApi.compare(report.data!.run!.id, previousRun)).data as CompareData,
+  })
+  const compareData = comparison.data
+  const rerun = useMutation({
+    mutationFn: async () => {
+      const live = report.data!.live
+      const revision = (await historyApi.revision(projectId, live.current_revision_id)).data
+      if (revision.state === 'draft') { navigate(`/projects/${projectId}/revisions/${revision.id}`); return null }
+      return historyApi.start(projectId, revision, crypto.randomUUID())
+    },
+    onSuccess: response => { setActionError(''); if (response) setParams({ run: response.data.id }); void queryClient.invalidateQueries({ queryKey: ['project-report', projectId] }) },
+    onError: error => setActionError(apiError(error, 'Analysis could not start.')),
+  })
 
   // Filters
   const [findingSearch, setFindingSearch] = useState('')
   const [severityFilter, setSeverityFilter] = useState<string>('all')
   const [traceFilter, setTraceFilter] = useState<string>('all')
 
-  const fetchTraceLinks = useCallback(() => {
-    traceabilityApi.getByProject(projectId).then(res => setTraceLinks(res.data)).catch(() => {})
-  }, [projectId])
-
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      projectsApi.get(projectId).then(res => {
-        setProject(res.data)
-        if (res.data.version > 1) {
-          projectsApi.compare(projectId, res.data.version - 1).then(cRes => setCompareData(cRes.data)).catch(() => {})
-        }
-      }),
-      findingsApi.getByProject(projectId).then(res => setFindings(res.data)),
-      fetchTraceLinks(),
-    ]).finally(() => setLoading(false))
-  }, [projectId, fetchTraceLinks])
-
   const updateLinkStatus = async (linkId: number, status: string) => {
     try {
-      const token = localStorage.getItem('token')
-      await fetch(`${API_URL}/traceability/${linkId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
-      })
-      fetchTraceLinks()
+      if (!report.data?.run) return
+      await historyApi.decision(report.data.run.id, { target_type: 'trace', target_id: linkId, status,
+        expected_decision_id: report.data.reviews.find(review => review.trace_id === linkId)?.id || 0 })
+      await queryClient.invalidateQueries({ queryKey: ['project-report', projectId] })
     } catch (e) {
-      console.error(e)
+      setActionError(apiError(e))
     }
   }
 
-  const downloadTraceability = () => {
-    const token = localStorage.getItem('token')
-    fetch(`${API_URL}/traceability/project/${projectId}/export`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.blob())
-      .then(blob => {
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `traceability_${projectId}.csv`
-        a.click()
-        window.URL.revokeObjectURL(url)
-      })
+  const downloadTraceability = async () => {
+    setActionError('')
+    try {
+      if (!report.data?.run?.has_report) return
+      const response = await historyApi.exportTrace(report.data.run.id)
+      const url = window.URL.createObjectURL(response.data)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `traceability_${projectId}.csv`
+      anchor.click()
+      window.URL.revokeObjectURL(url)
+    } catch (error) { setActionError(apiError(error, 'Export failed. Please try again.')) }
   }
 
   // Filtered findings
@@ -331,6 +380,8 @@ export default function ReportPage() {
     return counts
   }, [traceLinks])
 
+  if (!Number.isInteger(projectId) || projectId < 1) return <p role="alert">This project link is invalid.</p>
+  if (report.isError && !project) return <div role="alert" className="space-y-3"><p>{apiError(report.error, 'The report could not be loaded.')}</p><Button onClick={() => report.refetch()}>Try again</Button></div>
   if (loading) {
     return (
       <div className="space-y-4">
@@ -343,6 +394,34 @@ export default function ReportPage() {
 
   return (
     <div className="space-y-4">
+      <section aria-label="Analysis history" className="border border-[#51535c] rounded p-4 flex flex-wrap gap-4 items-end print:hidden">
+        <label className="flex-1 min-w-0 text-sm space-y-2"><span>Analysis history</span><select className="block w-full rounded border border-[#51535c] bg-[#17181B] p-2" value={selectedRun || ''} onChange={event => { setParams(event.target.value ? { run: event.target.value } : {}); setPreviousRun('') }}>
+          <option value="">Published report</option>{report.data?.runs.map((run: RunSummary) => <option key={run.id} value={run.id}>{formatDate(run.created_at)} — {run.status} ({run.id.slice(0, 8)})</option>)}
+        </select></label>
+        <Button variant="outline" disabled={report.data?.live.status === 'analyzing'} onClick={async () => { try { const draft = await historyApi.draft(projectId, report.data?.run?.revision_id); navigate(`/projects/${projectId}/revisions/${draft.data.id}`) } catch (error) { setActionError(apiError(error)) } }}>Edit a new draft</Button>
+      </section>
+      {report.data?.live.latest_run_id && report.data.live.latest_run_id !== report.data.run?.id && <p role="status" className="p-3 border border-amber-300 rounded">Showing a preserved report. A newer analysis attempt is available in the history menu. <button className="underline" onClick={() => setParams({ run: report.data!.live.latest_run_id! })}>View latest attempt</button></p>}
+      {actionError && <p role="alert" className="p-3 border border-red-400 text-red-300">{actionError}</p>}
+      {report.isError && <p role="alert">Unable to refresh. Showing the last loaded report. <button onClick={() => report.refetch()}>Retry</button></p>}
+      {comparison.isError && activeTab === 'compare' && <p role="alert">{apiError(comparison.error, 'Comparison is unavailable.')} <button onClick={() => comparison.refetch()}>Retry</button></p>}
+      {project?.status === 'analyzing' && <p role="status" aria-live="polite" className="p-4 border border-blue-400 rounded">Analysis is running. This report updates automatically. Any results below are from the previous completed analysis.</p>}
+      {report.data?.live.status === 'pending' && <p role="status" className="p-4 border rounded">A draft is ready to edit. <Link className="underline" to={`/projects/${projectId}/revisions/${report.data.live.current_revision_id}`}>Continue draft</Link></p>}
+      {project?.status === 'partial' && <p role="status" className="p-4 border border-amber-400 rounded">Some inputs or requested checks could not be fully evaluated. Review the warnings below; no final grade is assigned.</p>}
+      {project?.analysis_error && <p role="alert" className="p-4 border border-red-400 rounded">{project.analysis_error}</p>}
+      {project?.quality_score && <section aria-label="Quality score" className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="font-semibold">{project.quality_score.details?.profile === 'architecture' ? 'Requirements and architecture' : 'Requirements'} assessment</h2>
+          <p className="text-2xl font-semibold">{project.quality_score.overall_score == null ? 'Not graded' : `${project.quality_score.overall_score.toFixed(1)} / 100`}</p>
+        </div>
+        {project.quality_score.details ? <>
+          <div className="grid sm:grid-cols-3 gap-4">{Object.entries(project.quality_score.details.categories).map(([name, category]) => <div key={name}>
+            <h3 className="capitalize text-sm text-[#A1A1AA]">{name}</h3>
+            <p>{!category.applicable ? 'Not applicable' : category.percentage == null ? 'Not evaluated' : `${category.percentage.toFixed(1)}%`}</p>
+            {category.applicable && <p className="text-sm text-[#A1A1AA]">{category.eligible_count} eligible · {category.weight}% weight</p>}
+          </div>)}</div>
+          <p className="text-sm text-[#A1A1AA]">{project.quality_score.details.note} Rubric {project.quality_score.details.rubric_version}; {project.analysis_mode} mode.</p>
+        </> : <p className="text-sm text-amber-300">Legacy score: this result predates the current rubric and is not comparable to new assessments.</p>}
+      </section>}
       {/* Breadcrumb path */}
       <Breadcrumbs
         items={[
@@ -370,16 +449,19 @@ export default function ReportPage() {
               </span>
             </div>
             <p className="text-[11px] font-mono text-[#777981] mt-0.5">
-              ID: {project.id} • Evaluated: {formatDate(project.created_at)}
+              ID: {project.id} • {project.quality_score ? 'Evaluated' : 'Created'}: {formatDate(project.quality_score?.computed_at || project.created_at)}
             </p>
           </div>
 
           <div className="flex items-center gap-1.5 print:hidden">
+            <Button size="sm" disabled={report.data?.live.status === 'analyzing' || rerun.isPending} onClick={() => rerun.mutate()}>
+              {project.status === 'analyzing' ? 'Analyzing…' : rerun.isPending ? 'Starting…' : project.status === 'pending' ? 'Analyze' : 'Run again'}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()}>
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Print
             </Button>
-            <Button variant="outline" size="sm" onClick={downloadTraceability}>
+            <Button variant="outline" size="sm" disabled={!report.data?.run?.has_report} onClick={downloadTraceability}>
               <Download className="mr-1.5 h-3.5 w-3.5" />
               Traceability CSV
             </Button>
@@ -457,9 +539,9 @@ export default function ReportPage() {
           {filteredFindings.length === 0 ? (
             <EmptyState
               icon={ShieldAlert}
-              title={findings.length === 0 ? 'No defects recorded' : 'No findings match query'}
+              title={findings.length === 0 ? (project?.status === 'done' ? 'No findings in the evaluated scope' : 'Results are not available yet') : 'No findings match query'}
               description={findings.length === 0
-                ? 'All requirement verification rules evaluated successfully without violations.'
+                ? 'An empty result is not proof of correctness. Check the analysis status and evaluated scope above.'
                 : 'Clear or modify your search and severity filters to view other findings.'
               }
               action={findings.length > 0 ? {
@@ -543,7 +625,7 @@ export default function ReportPage() {
                     filteredTraceLinks.map(t => (
                       <tr key={t.id} className="hover:bg-[#24252A]/40 transition-none">
                         <td className="py-2.5 px-3.5 font-mono">
-                          <span className="font-semibold text-[#E7E7E9]">{t.source_id}</span>
+                          <span className="font-semibold text-[#E7E7E9]">{t.source_label || t.source_id}</span>
                           <span className="text-[10px] text-[#777981] ml-1.5">[{t.source_type}]</span>
                         </td>
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
@@ -553,15 +635,16 @@ export default function ReportPage() {
                               traceStatusColor(t.status)
                             )}
                           >
-                            {t.status}
+                            {t.is_stale ? 'stale' : t.status}
                           </span>
                         </td>
                         <td className="py-2.5 px-3 font-mono">
-                          <span className="font-semibold text-[#E7E7E9]">{t.target_id}</span>
+                          <span className="font-semibold text-[#E7E7E9]">{t.target_label || t.target_id}</span>
                           <span className="text-[10px] text-[#777981] ml-1.5">[{t.target_type}]</span>
+                          <p className="text-xs text-[#A1A1AA] mt-1">{t.origin?.replace(/_/g, ' ')} {t.confidence != null && `· similarity ${t.confidence.toFixed(2)} (not a probability)`}</p>
                         </td>
                         <td className="py-2.5 px-3.5 text-right whitespace-nowrap print:hidden">
-                          {t.status === 'suggested' ? (
+                          {t.status === 'suggested' && !t.is_stale ? (
                             <div className="flex items-center justify-end gap-1 font-mono">
                               <button
                                 onClick={() => updateLinkStatus(t.id, 'confirmed')}
@@ -652,11 +735,14 @@ export default function ReportPage() {
       {/* ===== VERSION DIFF TAB ===== */}
       {activeTab === 'compare' && (
         <div className="space-y-4">
+          <label className="block text-sm space-y-2"><span>Compare the selected report with</span><select className="block rounded border border-[#51535c] bg-[#17181B] p-2 w-full" value={previousRun} onChange={event => setPreviousRun(event.target.value)}><option value="">Choose an earlier report</option>{report.data?.runs.filter(run => run.has_report && run.id !== report.data?.run?.id).map(run => <option key={run.id} value={run.id}>{formatDate(run.created_at)} — {run.status} ({run.id.slice(0, 8)})</option>)}</select></label>
+          {compareData?.comparability_note && <p className="p-3 border border-amber-300 rounded">{compareData.comparability_note}</p>}
+          {compareData?.requirements && <p className="text-sm">Requirements: {compareData.requirements.added.length} added, {compareData.requirements.changed.length} changed, {compareData.requirements.deleted.length} removed.</p>}
           {!compareData ? (
             <EmptyState
               icon={GitCompare}
               title="No previous version comparison"
-              description="Upload a subsequent revision of this specification with identical project name to calculate regression and resolution diffs."
+              description="Create a draft in this project, make your corrections, and analyze it. Both reports remain available for comparison."
               className="border rounded bg-[#1D1E22]"
             />
           ) : (
@@ -668,7 +754,7 @@ export default function ReportPage() {
                     Resolved Defects ({compareData.resolved_findings?.length || 0})
                   </span>
                   <span className="text-[10px] font-mono text-[#777981]">
-                    Fixed compared to v{(project?.version || 2) - 1}
+                    Absent from the selected report
                   </span>
                 </div>
                 <div className="p-3 text-xs">
@@ -696,7 +782,7 @@ export default function ReportPage() {
                     Newly Introduced Defects ({compareData.new_findings?.length || 0})
                   </span>
                   <span className="text-[10px] font-mono text-[#777981]">
-                    Regressions introduced in v{project?.version}
+                    Present in the selected report
                   </span>
                 </div>
                 <div className="p-3 text-xs">

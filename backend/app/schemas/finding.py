@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -11,11 +11,12 @@ class FindingOut(BaseModel):
     artifact_type: Optional[str]
     requirement_id: Optional[str]
     source_ref: Optional[str] = None
+    source_spans: Optional[list[dict]] = None
+    element_id: Optional[str] = None
     finding_type: str
     rewrite_suggestion: Optional[str]
     rewrite_attempts: Optional[int] = 0
     rewrite_passed: Optional[bool] = False
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

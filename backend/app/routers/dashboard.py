@@ -9,13 +9,13 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 def get_dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    total_projects = db.query(Project).filter(Project.user_id == current_user.id).count()
+    total_projects = db.query(Project).filter(Project.user_id == current_user.id, Project.deleted_at.is_(None), Project.archived_at.is_(None)).count()
     analyzed_projects = db.query(Project).filter(
-        Project.user_id == current_user.id,
+        Project.user_id == current_user.id, Project.deleted_at.is_(None), Project.archived_at.is_(None),
         Project.status == 'done'
     ).count()
     analyzing_projects = db.query(Project).filter(
-        Project.user_id == current_user.id,
+        Project.user_id == current_user.id, Project.deleted_at.is_(None), Project.archived_at.is_(None),
         Project.status == 'analyzing'
     ).count()
 

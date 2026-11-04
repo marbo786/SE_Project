@@ -2,25 +2,27 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "codex/**" ]
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: read
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
       with:
-        python-version: '3.10'
+        python-version: '3.13'
     - name: Install dependencies
       run: |
         cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio
+        python -m pip install --upgrade pip setuptools
+        pip install -r requirements-dev.txt
     - name: Run Pytest
       env:
         SECRET_KEY: test_secret_key_ci_environment_32chars
@@ -30,20 +32,86 @@ jobs:
       run: |
         cd backend
         python -m pytest tests/ -v
+    - name: Audit Python dependencies
+      run: pip-audit
+    - name: Compose integration smoke
+      run: |
+        cp backend/.env.example backend/.env
+        docker compose up -d --build
+        python scripts/smoke_http.py
+    - name: Stop disposable services
+      if: always()
+      run: docker compose down
 
   frontend-build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - name: Set up Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
       with:
-        node-version: '18'
+        node-version: '24'
     - name: Install dependencies
       run: |
         cd frontend
-        npm install
+        npm ci
     - name: Build
       run: |
         cd frontend
         npm run build
+    - name: Audit JavaScript dependencies
+      working-directory: frontend
+      run: npm audit --audit-level=moderate
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: srs_test
+          POSTGRES_PASSWORD: srs_test
+          POSTGRES_DB: srs_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U srs_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r backend/requirements-dev.txt
+      - name: Populated PostgreSQL migration and concurrent drafts
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://srs_test:srs_test@localhost:5432/srs_test
+        run: python -m pytest backend/tests/test_history_migration.py -v
+
+  browser-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - run: python -m pip install -r backend/requirements-dev.txt
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Draft, extraction correction, analysis and historical report
+        run: python scripts/check_http_local.py --browser
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: 'false'

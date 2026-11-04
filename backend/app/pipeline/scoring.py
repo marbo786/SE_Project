@@ -1,38 +1,40 @@
-"""
-Scoring engine: computes weighted quality scores from findings.
-"""
-from typing import List, Dict
+"""Rubric v2: applicable evidence, stable denominators, explicit incompleteness."""
 from ..core.config import get_yaml_config
 
-def compute_scores(findings: List[Dict], trace_links: List[Dict], req_count: int, uml_count: int, trace_count: int) -> Dict:
+
+def compute_scores(findings, trace_links, req_count, uml_count, trace_count=0, *, profile=None, complete=True, obligations=None):
+    # trace_count is retained for old callers, but insertion counts never affect a grade.
+    profile = profile or ("architecture" if uml_count else "srs_only")
+    architecture = profile == "architecture"
     config = get_yaml_config()
-    rubric = config.get('rubric', {'requirements': 40, 'uml': 30, 'traceability': 30})
-    severity_penalties = config.get('severity_penalty', {'critical': 15, 'major': 5, 'minor': 2})
+    penalties = config.get("severity_penalty", {"critical": 15, "major": 5, "minor": 2})
+    weights = config.get("rubric", {"requirements": 40, "uml": 30, "traceability": 30}) if architecture else {"requirements": 100, "uml": 0, "traceability": 0}
+    # This is a machine score. Operational/AI failures and review decisions do not
+    # create document penalties; a failed requested stage suppresses the final grade.
+    def raw(kind, denominator):
+        if not denominator:
+            return None
+        total = sum(penalties.get(f.get("severity"), 0) for f in findings
+            if f.get("artifact_type") == kind and f.get("finding_type", "deterministic") == "deterministic")
+        return max(0.0, 100 - total / denominator * 10)
 
-    srs_findings = [f for f in findings if f.get('artifact_type') == 'srs']
-    uml_findings = [f for f in findings if f.get('artifact_type') == 'uml']
-    trace_findings = [f for f in findings if f.get('artifact_type') == 'traceability']
-
-    def penalty(finding_list: List[Dict]) -> float:
-        return sum(severity_penalties.get(f.get('severity', 'minor'), 2) for f in finding_list)
-
-    req_penalty = penalty(srs_findings)
-    uml_penalty = penalty(uml_findings)
-    trace_penalty = penalty(trace_findings)
-    
-    # Formula: 100 - (Total Penalty / Element Count) * 10
-    req_raw = max(0.0, 100.0 - (req_penalty / max(1, req_count)) * 10)
-    uml_raw = max(0.0, 100.0 - (uml_penalty / max(1, uml_count)) * 10)
-    trace_raw = max(0.0, 100.0 - (trace_penalty / max(1, trace_count)) * 10)
-
-    req_score = (req_raw / 100.0) * rubric.get('requirements', 40)
-    uml_score = (uml_raw / 100.0) * rubric.get('uml', 30)
-    trace_score = (trace_raw / 100.0) * rubric.get('traceability', 30)
-    overall = req_score + uml_score + trace_score
-
-    return {
-        'requirements_score': round(req_score, 2),
-        'uml_score': round(uml_score, 2),
-        'traceability_score': round(trace_score, 2),
-        'overall_score': round(overall, 2)
-    }
+    requirement_raw = raw("srs", req_count)
+    uml_raw = raw("uml", uml_count) if architecture else None
+    evaluated = obligations or []
+    candidate_covered = sum(bool(item["covered"]) for item in evaluated)
+    confirmed_covered = sum(bool(item["confirmed"]) for item in evaluated)
+    trace_raw = candidate_covered / len(evaluated) * 100 if architecture and evaluated else None
+    categories = {}
+    for name, percentage, count in [("requirements", requirement_raw, req_count), ("uml", uml_raw, uml_count), ("traceability", trace_raw, len(evaluated))]:
+        applicable = name == "requirements" or architecture
+        categories[name] = {"applicable": applicable, "eligible_count": count if applicable else 0,
+            "percentage": round(percentage, 2) if percentage is not None else None, "weight": weights.get(name, 0),
+            "contribution": round(percentage * weights.get(name, 0) / 100, 2) if percentage is not None else None}
+    ready = complete and req_count > 0 and all(item["percentage"] is not None for item in categories.values() if item["applicable"])
+    overall = round(sum(item["contribution"] or 0 for item in categories.values()), 2) if ready else None
+    return {"requirements_score": categories["requirements"]["contribution"],
+        "uml_score": categories["uml"]["contribution"], "traceability_score": categories["traceability"]["contribution"],
+        "overall_score": overall, "details": {"rubric_version": "2", "profile": profile,
+            "complete": ready, "categories": categories, "trace_obligations": len(evaluated),
+            "candidate_covered": candidate_covered, "confirmed_covered": confirmed_covered,
+            "note": "Machine assessment of the evaluated inputs. Trace coverage includes inferred candidates; reviewer confirmation is reported separately."}}

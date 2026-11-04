@@ -3,8 +3,10 @@ Deterministic SRS requirement checks.
 Each check returns a list of finding dicts.
 """
 import re
+from collections import Counter
 from typing import List, Dict
 from ...core.config import get_yaml_config
+from ..srs.parser import classification
 
 
 def check_ambiguous_words(requirements: List[Dict]) -> List[Dict]:
@@ -15,7 +17,7 @@ def check_ambiguous_words(requirements: List[Dict]) -> List[Dict]:
     findings = []
     for req in requirements:
         text = req.get('text', '')
-        found = [w for w in lexicon if re.search(r'\b' + re.escape(w) + r'\b', text, re.IGNORECASE)]
+        found = [w for w in lexicon if re.search(r'(?<!\w)' + re.escape(w) + r'(?!\w)', text, re.IGNORECASE)]
         if found:
             findings.append({
                 'rule_id': 'FR-401',
@@ -37,13 +39,13 @@ def check_multiple_shall(requirements: List[Dict]) -> List[Dict]:
     findings = []
     for req in requirements:
         text = req.get('text', '')
-        count = len(re.findall(r'\bshall\b', text, re.IGNORECASE))
+        count = len(re.findall(r'\b(?:shall|must)\b', text, re.IGNORECASE))
         if count > 1:
             findings.append({
                 'rule_id': 'FR-402',
                 'severity': severity,
                 'quoted_text': text,
-                'explanation': f'Requirement contains {count} occurrences of "shall". It should be atomic (one shall per requirement).',
+                'explanation': f'Requirement contains {count} normative verbs (shall/must). Review whether it describes separate obligations.',
                 'requirement_id': req.get('id'),
                 'finding_type': 'deterministic',
                 'artifact_type': 'srs',
@@ -60,7 +62,9 @@ def check_missing_sections(sections: List[str]) -> List[Dict]:
     findings = []
     sections_lower = [s.lower() for s in sections]
     for expected_section in expected:
-        if not any(expected_section.lower() in s for s in sections_lower):
+        expected_name = re.sub(r'^\d+(?:\.\d+)*\.?\s*', '', expected_section.lower())
+        matched = any(expected_name in re.sub(r'^\d+(?:\.\d+)*\.?\s*', '', s) for s in sections_lower) if expected_name else any(re.match(re.escape(expected_section.lower()) + r'(?![\d.])', s) for s in sections_lower)
+        if not matched:
             findings.append({
                 'rule_id': 'FR-405',
                 'severity': severity,
@@ -99,11 +103,11 @@ def check_duplicate_identifiers(requirements: List[Dict]) -> List[Dict]:
     config = get_yaml_config()
     severity = config.get('rules', {}).get('duplicate_identifier', {}).get('severity', 'critical')
     findings = []
-    seen = {}
+    counts = Counter(req['id'].casefold() for req in requirements if req.get('id'))
     for req in requirements:
         req_id = req.get('id')
         if req_id:
-            if req_id in seen:
+            if counts[req_id.casefold()] > 1:
                 findings.append({
                     'rule_id': 'FR-410',
                     'severity': severity,
@@ -111,10 +115,11 @@ def check_duplicate_identifiers(requirements: List[Dict]) -> List[Dict]:
                     'explanation': f'Requirement identifier "{req_id}" is used more than once.',
                     'requirement_id': req_id,
                     'finding_type': 'deterministic',
-                    'artifact_type': 'srs'
+                    'artifact_type': 'srs',
+                    'source_ref': req.get('source_ref'),
+                    'source_spans': req.get('source_spans', []),
+                    'element_id': req.get('internal_id')
                 })
-            else:
-                seen[req_id] = req
     return findings
 
 
@@ -123,22 +128,25 @@ def check_nfr_no_metric(requirements: List[Dict]) -> List[Dict]:
     config = get_yaml_config()
     severity = config.get('rules', {}).get('nfr_no_metric', {}).get('severity', 'major')
     unit_pattern = re.compile(
-        r'\d+\s*(ms|seconds?|minutes?|hours?|days?|%|MB|GB|KB|TB|requests?|users?|concurrent|per|times?)'
-        r'|\d+\.\d+', re.IGNORECASE
+        r'\d+(?:\.\d+)?\s*(?:milliseconds?|ms\b|seconds?|s\b|minutes?|hours?|days?|%|MB\b|GB\b|KB\b|TB\b|requests?|users?|concurrent|per\b|times?)', re.IGNORECASE
     )
     findings = []
     for req in requirements:
-        if req.get('class') == 'non_functional':
+        subtype = req.get('subtype') or classification(req.get('text', ''), req.get('section', ''))['subtype']
+        if req.get('class') == 'non_functional' and subtype in {'performance', 'availability'}:
             text = req.get('text', '')
             if not unit_pattern.search(text):
                 findings.append({
                     'rule_id': 'FR-411',
                     'severity': severity,
                     'quoted_text': text,
-                    'explanation': 'Non-functional requirement lacks a numeric threshold or unit of measurement.',
+                    'explanation': f'This {subtype} requirement needs a measurable acceptance threshold. Obtain the target from a stakeholder; do not invent it.',
                     'requirement_id': req.get('id'),
                     'finding_type': 'deterministic',
-                    'artifact_type': 'srs'
+                    'artifact_type': 'srs',
+                    'source_ref': req.get('source_ref'),
+                    'source_spans': req.get('source_spans', []),
+                    'element_id': req.get('internal_id')
                 })
     return findings
 
@@ -150,7 +158,7 @@ def check_warn_no_shall(requirements: List[Dict]) -> List[Dict]:
             'rule_id': 'FR-305',
             'severity': 'major',
             'quoted_text': None,
-            'explanation': 'No "shall" statements were detected in the uploaded SRS. Ensure requirements use the "shall" keyword.',
+            'explanation': 'No requirements were detected. Use shall/must statements or explicit identifiers, then verify the extracted text.',
             'requirement_id': None,
             'finding_type': 'deterministic',
             'artifact_type': 'srs'
@@ -170,4 +178,9 @@ def run_all_srs_checks(parsed: Dict) -> List[Dict]:
     findings += check_no_identifier(requirements)
     findings += check_duplicate_identifiers(requirements)
     findings += check_nfr_no_metric(requirements)
+    for finding in findings:
+        matches = [req for req in requirements if finding.get('source_ref') and req.get('source_ref') == finding['source_ref']]
+        if len(matches) == 1:
+            finding['source_spans'] = matches[0].get('source_spans', [])
+            finding['element_id'] = matches[0].get('internal_id')
     return findings

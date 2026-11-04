@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { projectsApi } from '@/lib/api'
+import { historyApi, apiError, Revision } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,6 +39,8 @@ export default function NewProjectPage() {
   // Form State
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [profile, setProfile] = useState<'srs_only' | 'architecture'>('srs_only')
+  const [useAI, setUseAI] = useState(false)
   const [srsFile, setSrsFile] = useState<File | null>(null)
 
   // UML Diagrams
@@ -52,6 +54,10 @@ export default function NewProjectPage() {
   // Status
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const savedProject = useRef<{ id: number; current_revision_id: number } | null>(null)
+  const createKey = useRef(crypto.randomUUID())
+  const uploaded = useRef(new Set<File>())
+  const attempts = useRef(new Map<File, { key: string; revision: Revision; replaceId?: number }>())
 
   const handleAddUml = () => {
     if (umlFile) {
@@ -100,30 +106,34 @@ export default function NewProjectPage() {
       setCurrentStep(2)
       return
     }
+    if (profile === 'architecture' && !['usecase', 'class', 'sequence'].every(type => umlFiles.some(uml => uml.type === type))) {
+      setError('The architecture profile requires use-case, class, and sequence diagrams.')
+      setCurrentStep(3)
+      return
+    }
 
     setLoading(true)
     setError('')
 
     try {
-      // 1. Create project
-      const res = await projectsApi.create({ name, description })
-      const projectId = res.data.id
-
-      // 2. Upload SRS
-      await projectsApi.uploadSRS(projectId, srsFile)
-
-      // 3. Upload UML files sequentially
-      for (const uml of umlFiles) {
-        await projectsApi.uploadUML(projectId, uml.type, uml.file)
+      if (!savedProject.current) {
+        const response = await historyApi.create({ name, description, analysis_profile: profile, analysis_mode: useAI ? 'ai' : 'deterministic' }, createKey.current)
+        savedProject.current = response.data
       }
-
-      // 4. Trigger analysis
-      await projectsApi.analyze(projectId)
-
-      // 5. Navigate to report
-      navigate(`/projects/${projectId}`)
+      const project = savedProject.current!
+      let revision = (await historyApi.revision(project.id, project.current_revision_id)).data
+      for (const input of [{ type: 'srs', file: srsFile }, ...umlFiles.map(uml => ({ type: `uml_${uml.type}`, file: uml.file }))]) {
+        if (uploaded.current.has(input.file)) continue
+        if (!attempts.current.has(input.file)) attempts.current.set(input.file, { key: crypto.randomUUID(), revision,
+          replaceId: input.type === 'srs' ? revision.artifacts.find(a => a.type === 'srs')?.id : undefined })
+        const attempt = attempts.current.get(input.file)!
+        const response = await historyApi.upload(project.id, attempt.revision, input.type, input.file, attempt.key, attempt.replaceId)
+        uploaded.current.add(input.file)
+        revision = response.data.revision
+      }
+      navigate(`/projects/${project.id}/revisions/${revision.id}`)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Analysis pipeline initiation failed.')
+      setError(apiError(err, 'The draft could not be saved. Retry to continue the same project.') + (savedProject.current ? ' Your saved draft is also available in Projects.' : ''))
       setLoading(false)
     }
   }
@@ -132,7 +142,7 @@ export default function NewProjectPage() {
     { num: 1, label: 'Scope & Metadata' },
     { num: 2, label: 'SRS Document' },
     { num: 3, label: 'Architecture UML' },
-    { num: 4, label: 'Review & Ingest' },
+    { num: 4, label: 'Save draft' },
   ]
 
   return (
@@ -141,13 +151,13 @@ export default function NewProjectPage() {
       <Breadcrumbs
         items={[
           { label: 'Specifications', href: '/projects' },
-          { label: 'New Ingestion Pipeline' },
+          { label: 'New specification' },
         ]}
       />
 
       <PageHeader
-        title="Ingest Specification"
-        description="Provide software requirement specification documents and architecture models for static evaluation."
+        title="New specification"
+        description="Upload your source documents, review the extracted requirements, then start an analysis."
       />
 
       {/* Step Navigation Bar */}
@@ -196,6 +206,15 @@ export default function NewProjectPage() {
           </div>
 
           <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="analysis-profile">What should this review cover?</Label>
+              <select id="analysis-profile" value={profile} onChange={event => setProfile(event.target.value as typeof profile)} className="block w-full rounded border border-[#303136] bg-[#17181B] p-3 text-sm">
+                <option value="srs_only">Requirements only</option>
+                <option value="architecture">Requirements and architecture (all three UML diagrams)</option>
+              </select>
+              <p className="text-sm text-[#A1A1AA]">The selected scope determines which checks and scores apply. Requirements-only reviews do not grade UML or traceability.</p>
+              <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={useAI} onChange={event => setUseAI(event.target.checked)} className="mt-1" />Include AI suggestions using the configured provider. Deterministic checks work offline.</label>
+            </div>
             <div>
               <Label htmlFor="spec-name" className="text-xs text-[#E7E7E9] mb-1.5 block">
                 Specification Name <span className="text-[#C04848]">*</span>
@@ -477,7 +496,7 @@ export default function NewProjectPage() {
               disabled={loading}
               className="px-6"
             >
-              Execute Ingestion & Inspection
+              Save draft and review extraction
             </Button>
           </div>
         </div>

@@ -1,76 +1,49 @@
-﻿import os
-import sys
+"""Reproducible occurrence-level results; preserve legacy labels for transparency."""
+import argparse
+from collections import Counter
 import json
+from pathlib import Path
+import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from app.pipeline.checks.srs_checks import run_all_srs_checks
-from app.pipeline.checks.uml_checks import run_all_uml_checks
-from app.pipeline.uml.parser import parse_plantuml
 
-def evaluate():
-    print("=" * 65)
-    print("  AUTOMATED EVALUATION BENCHMARK (FR-907)")
-    print("=" * 65)
-    
-    with open('eval/dataset.json', 'r') as f:
-        dataset = json.load(f)
-        
-    rule_stats = {}
-    
-    # We will test each requirement individually (so FR-405 missing sections doesn't interfere)
-    # But for FR-410 (duplicate), we need to test the whole list.
-    
-    all_expected = []
-    for req in dataset:
-        for rule in req['expected_rules']:
-            all_expected.append((req['id'], rule))
-            
-    findings = run_all_srs_checks({'requirements': dataset, 'sections': []})
-    
-    # Filter out missing sections from the findings since we are only testing requirements
-    findings = [f for f in findings if f['rule_id'] != 'FR-405' and f['rule_id'] != 'FR-305']
-    
-    detected = [(f['requirement_id'], f['rule_id']) for f in findings]
-    
-    for rule_id in ['FR-401', 'FR-402', 'FR-409', 'FR-410', 'FR-411']:
-        exp = [x for x in all_expected if x[1] == rule_id]
-        det = [x for x in detected if x[1] == rule_id]
-        
-        tp = len(set(exp) & set(det))
-        fp = len(set(det) - set(exp))
-        fn = len(set(exp) - set(det))
-        
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-        
-        rule_stats[rule_id] = {'tp': tp, 'fp': fp, 'fn': fn, 'precision': precision, 'recall': recall, 'f1': f1}
-        
-    # Generate markdown
-    md = "# Evaluation Results\n\n"
-    md += "| Rule | Precision | Recall | F1-Score |\n"
-    md += "|---|---|---|---|\n"
-    
-    total_tp = total_fp = total_fn = 0
-    
-    for rule_id, stats in rule_stats.items():
-        md += f"| {rule_id} | {stats['precision']:.2f} | {stats['recall']:.2f} | {stats['f1']:.2f} |\n"
-        total_tp += stats['tp']
-        total_fp += stats['fp']
-        total_fn += stats['fn']
-        
-    ovr_p = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    ovr_r = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
-    ovr_f1 = 2 * (ovr_p * ovr_r) / (ovr_p + ovr_r) if (ovr_p + ovr_r) > 0 else 0.0
-    
-    md += f"| **Overall** | **{ovr_p:.2f}** | **{ovr_r:.2f}** | **{ovr_f1:.2f}** |\n"
-    
-    with open('eval/results.md', 'w') as f:
-        f.write(md)
-        
-    print(md)
+
+def evaluate(dataset):
+    examples = [{**row, "internal_id": f"example-{index + 1}", "source_ref": f"Example {index + 1}"} for index, row in enumerate(dataset)]
+    expected = Counter((row["internal_id"], rule) for row in examples for rule in row["expected_rules"])
+    detected = Counter((finding.get("element_id"), finding["rule_id"]) for finding in run_all_srs_checks({"requirements": examples, "sections": []}) if finding["rule_id"] not in {"FR-405", "FR-305"})
+    results = {}
+    for rule in sorted({rule for _, rule in expected.keys() | detected.keys()}):
+        actual = Counter({key: count for key, count in detected.items() if key[1] == rule})
+        truth = Counter({key: count for key, count in expected.items() if key[1] == rule})
+        tp, fp, fn = sum((truth & actual).values()), sum((actual - truth).values()), sum((truth - actual).values())
+        precision = tp / (tp + fp) if tp + fp else 0
+        recall = tp / (tp + fn) if tp + fn else 0
+        results[rule] = {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall,
+            "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0}
+    return {"examples": len(examples), "rules": results,
+        "false_negatives": [[*key, count] for key, count in (expected - detected).items()],
+        "false_positives": [[*key, count] for key, count in (detected - expected).items()]}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=Path, default=ROOT / "eval/dataset.json")
+    parser.add_argument("--output", type=Path, default=ROOT / "eval/results.md")
+    args = parser.parse_args()
+    result = evaluate(json.loads(args.dataset.read_text(encoding="utf-8")))
+    lines = ["# Deterministic legacy-fixture evaluation", "", f"{result['examples']} authored examples; counts use occurrence IDs, including every missing/duplicate ID.", "",
+        "These labels are preserved from the original dataset, not relabelled to match the new code. FR-411 now applies to performance/availability thresholds; legacy labels also required numbers in other NFR subtypes. The resulting disagreements need independent annotation review. This is a development fixture, not a held-out accuracy or AI evaluation.", "",
+        "| Rule | TP | FP | FN | Precision | Recall | F1 |", "|---|---:|---:|---:|---:|---:|---:|"]
+    for rule, values in result["rules"].items():
+        lines.append(f"| {rule} | {values['tp']} | {values['fp']} | {values['fn']} | {values['precision']:.2f} | {values['recall']:.2f} | {values['f1']:.2f} |")
+    lines.extend(["", "Mismatch details are recorded in `results.json`. Broader parsing, UML, traceability and scoring cases are integration/regression tests; their pass count is not an accuracy percentage.", ""])
+    args.output.write_text("\n".join(lines), encoding="utf-8")
+    args.output.with_suffix(".json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print("\n".join(lines))
+
 
 if __name__ == "__main__":
-    evaluate()
+    main()

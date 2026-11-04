@@ -1,206 +1,171 @@
-"""
-Traceability checks: validates links between requirements, use cases, sequence diagrams, and class diagrams.
-"""
-from typing import List, Dict, Set
+"""Evidence-bearing candidate links and cycle-safe coverage of typed endpoints."""
+from collections import defaultdict, deque
 import re
 from ...core.config import get_yaml_config
+from ..srs.parser import REQ_ID
 
-STOPWORDS = {'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'were', 'will', 'with', 'system', 'shall', 'must', 'user'}
+STOPWORDS = set("a an and are as at be by for from has he in is it its of on that the to was were will with system shall must user allow string int bool void".split())
 
-def _sev(rule_key: str) -> str:
-    config = get_yaml_config()
-    return config.get('rules', {}).get(rule_key, {}).get('severity', 'major')
 
-def _jaccard(set1: Set[str], set2: Set[str]) -> float:
-    if not set1 and not set2:
-        return 0.0
-    return len(set1 & set2) / len(set1 | set2)
+def requirement_key(requirement, index=0):
+    return requirement.get("internal_id") or requirement.get("id") or f"unidentified-{index + 1}"
 
-def _get_content_words(text: str) -> Set[str]:
-    words = re.findall(r'\w+', text.lower())
-    return set(w for w in words if w not in STOPWORDS)
 
-def build_trace_links(
-    requirements: List[Dict],
-    usecase_model: Dict,
-    sequence_model: Dict = None,
-    class_model: Dict = None
-) -> List[Dict]:
-    config = get_yaml_config()
-    jaccard_threshold = config.get('trace_jaccard_threshold', 0.3)
-    
-    links = []
-    use_cases = usecase_model.get('use_cases', []) if usecase_model else []
-    seq_messages = sequence_model.get('messages', []) if sequence_model else []
-    seq_participants = sequence_model.get('participants', []) if sequence_model else []
-    classes = class_model.get('classes', []) if class_model else []
+def element_key(element, label_field="name"):
+    return element.get("id") or element.get(label_field, "")
 
-    # Map seq participants to class
-    seq_to_class = {}
-    for part in seq_participants:
-        part_name = part['name']
-        for cls in classes:
-            if cls['name'].lower() == part_name.lower():
-                seq_to_class[part_name] = cls['name']
 
-    for req in requirements:
-        req_text = req.get('text', '')
-        req_id = req.get('id', 'UNKNOWN')
-        req_words = _get_content_words(req_text)
+def _get_content_words(text):
+    text = REQ_ID.sub(" ", text)
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    words = re.findall(r"[a-z]+", text.lower())
+    words = [word[:-1] if word.endswith("s") and not word.endswith("ss") and len(word) > 3 else word for word in words]
+    return {word for word in words if word not in STOPWORDS}
 
-        # Req -> Use Case
-        for uc in use_cases:
-            uc_name = uc['name']
-            uc_words = _get_content_words(uc_name)
-            if req_id in uc_name or _jaccard(req_words, uc_words) >= jaccard_threshold:
-                links.append({'source_type': 'requirement', 'source_id': req_id, 'target_type': 'usecase', 'target_id': uc_name, 'status': 'suggested'})
 
-        # Req -> Sequence
-        for msg in seq_messages:
-            msg_text = msg.get('message', '')
-            msg_words = _get_content_words(msg_text)
-            if req_id in msg_text or _jaccard(req_words, msg_words) >= jaccard_threshold:
-                links.append({'source_type': 'requirement', 'source_id': req_id, 'target_type': 'sequence', 'target_id': msg_text, 'status': 'suggested'})
+def _jaccard(left, right):
+    return len(left & right) / len(left | right) if left | right else 0.0
 
-        # Req -> Class
-        for cls in classes:
-            cls_name = cls['name']
-            cls_texts = cls_name + " " + " ".join(cls.get('attributes', [])) + " " + " ".join(cls.get('operations', []))
-            cls_words = _get_content_words(cls_texts)
-            if req_id in cls_texts or _jaccard(req_words, cls_words) >= jaccard_threshold:
-                links.append({'source_type': 'requirement', 'source_id': req_id, 'target_type': 'class', 'target_id': cls_name, 'status': 'suggested'})
 
-    # Use Case -> Sequence
-    for uc in use_cases:
-        uc_name = uc['name']
-        uc_words = _get_content_words(uc_name)
-        for msg in seq_messages:
-            msg_text = msg.get('message', '')
-            msg_words = _get_content_words(msg_text)
-            if _jaccard(uc_words, msg_words) >= jaccard_threshold:
-                links.append({'source_type': 'usecase', 'source_id': uc_name, 'target_type': 'sequence', 'target_id': msg_text, 'status': 'suggested'})
+def explicit_id_match(authored_id, text):
+    if not authored_id:
+        return False
+    normalize = lambda value: value.upper().replace("-", "")
+    return normalize(authored_id) in {normalize(match.group()) for match in REQ_ID.finditer(text)}
 
-    # Sequence -> Class
-    for part in seq_participants:
-        part_name = part['name']
-        for cls in classes:
-            cls_name = cls['name']
-            cls_words = _get_content_words(cls_name)
-            part_words = _get_content_words(part_name)
-            if cls_name.lower() == part_name.lower() or _jaccard(cls_words, part_words) >= jaccard_threshold:
-                links.append({'source_type': 'sequence', 'source_id': part_name, 'target_type': 'class', 'target_id': cls_name, 'status': 'suggested'})
 
-    msg_to_parts = {}
-    for msg in seq_messages:
-        msg_to_parts[msg.get('message')] = {msg.get('from'), msg.get('to')}
-        
-    for l in links:
-        if l['source_type'] == 'usecase' and l['target_type'] == 'sequence':
-            uc_id = l['source_id']
-            msg_id = l['target_id']
-            parts = msg_to_parts.get(msg_id, set())
-            for part in parts:
-                if part in seq_to_class:
-                    cls_name = seq_to_class[part]
-                    links.append({'source_type': 'usecase', 'source_id': uc_id, 'target_type': 'class', 'target_id': cls_name, 'status': 'suggested'})
-
-    unique_links = []
-    seen = set()
-    for l in links:
-        k = (l['source_type'], l['source_id'], l['target_type'], l['target_id'])
-        if k not in seen:
-            seen.add(k)
-            unique_links.append(l)
-
-    return unique_links
-
-def check_traceability(
-    requirements: List[Dict],
-    usecase_model: Dict,
-    sequence_model: Dict = None,
-    class_model: Dict = None,
-    existing_links: List[Dict] = None
-) -> List[Dict]:
-    findings = []
-    links = existing_links or []
-
-    use_cases = usecase_model.get('use_cases', []) if usecase_model else []
-    seq_messages = sequence_model.get('messages', []) if sequence_model else []
-    classes = class_model.get('classes', []) if class_model else []
-
-    req_ids_with_uc = set()
-    uc_ids_with_req = set()
-    uc_ids_with_seq = set()
-    seq_ids_with_uc = set()
-    cls_ids_with_req = set()
-
+def reachable(links, start, *, confirmed_only=False):
+    graph = defaultdict(list)
     for link in links:
-        if link.get('status') == 'rejected':
+        if link.get("status") == "rejected" or link.get("is_stale") or (confirmed_only and link.get("status") != "confirmed"):
             continue
-        
-        st, si, tt, ti = link['source_type'], link['source_id'], link['target_type'], link['target_id']
-        
-        if st == 'requirement' and tt == 'usecase':
-            req_ids_with_uc.add(si)
-            uc_ids_with_req.add(ti.lower())
-        if st == 'usecase' and tt == 'sequence':
-            uc_ids_with_seq.add(si.lower())
-            seq_ids_with_uc.add(ti.lower())
-        if st == 'requirement' and tt == 'class':
-            cls_ids_with_req.add(ti.lower())
+        source, target = (link["source_type"], link["source_id"]), (link["target_type"], link["target_id"])
+        graph[source].append((target, link))
+    paths, queue = {start: []}, deque([start])
+    while queue:
+        current = queue.popleft()
+        for target, link in graph[current]:
+            if target not in paths:
+                paths[target] = [*paths[current], link]
+                queue.append(target)
+    return paths
 
-    for req in requirements:
-        req_id = req.get('id', 'UNKNOWN')
-        if req_id not in req_ids_with_uc:
-            findings.append({
-                'rule_id': 'FR-701',
-                'severity': _sev('trace_req_no_usecase'),
-                'quoted_text': req.get('text', '')[:200],
-                'explanation': f'Requirement "{req_id}" has no linked use case.',
-                'requirement_id': req_id,
-                'finding_type': 'deterministic',
-                'artifact_type': 'traceability'
-            })
 
-    for uc in use_cases:
-        uc_name = uc['name'].lower()
-        if uc_name not in uc_ids_with_req:
-            findings.append({
-                'rule_id': 'FR-702',
-                'severity': _sev('trace_usecase_no_req'),
-                'quoted_text': uc['name'],
-                'explanation': f'Use case "{uc["name"]}" is not linked to any requirement.',
-                'requirement_id': None,
-                'finding_type': 'deterministic',
-                'artifact_type': 'traceability'
-            })
+def build_trace_links(requirements, usecase_model=None, sequence_model=None, class_model=None):
+    threshold = get_yaml_config().get("trace_jaccard_threshold", .3)
+    cases = (usecase_model or {}).get("use_cases", [])
+    messages = [message for message in (sequence_model or {}).get("messages", []) if not message.get("is_reply")]
+    participants = (sequence_model or {}).get("participants", [])
+    classes = (class_model or {}).get("classes", [])
+    links = {}
 
-    if sequence_model:
-        for uc in use_cases:
-            uc_name = uc['name'].lower()
-            if uc_name not in uc_ids_with_seq:
-                findings.append({
-                    'rule_id': 'FR-703',
-                    'severity': _sev('trace_usecase_no_seq'),
-                    'quoted_text': uc['name'],
-                    'explanation': f'Use case "{uc["name"]}" has no corresponding sequence diagram message.',
-                    'requirement_id': None,
-                    'finding_type': 'deterministic',
-                    'artifact_type': 'traceability'
-                })
-                
-    if class_model:
+    def add(source_type, source_id, source_label, target_type, target_id, target_label, origin, similarity, evidence=None):
+        key = (source_type, source_id, target_type, target_id)
+        candidate = {"source_type": source_type, "source_id": source_id, "source_label": source_label,
+            "target_type": target_type, "target_id": target_id, "target_label": target_label,
+            "status": "suggested", "origin": origin, "confidence": round(similarity, 3),
+            "evidence": evidence or {"method": origin, "note": "Candidate evidence; similarity is not a probability of correctness."}}
+        if key not in links or links[key]["confidence"] < similarity:
+            links[key] = candidate
+
+    def infer(source_type, source_id, source_label, source_text, target_type, target, target_text, authored_id=None, target_label=None):
+        target_id = element_key(target, "message" if target_type == "sequence" else "name")
+        explicit = explicit_id_match(authored_id, target_text)
+        similarity = _jaccard(_get_content_words(source_text), _get_content_words(target_text))
+        if explicit or similarity >= threshold:
+            add(source_type, source_id, source_label, target_type, target_id,
+                target_label or target.get("name") or target.get("message"),
+                "explicit_identifier" if explicit else "lexical_similarity", 1.0 if explicit else similarity,
+                {"method": "explicit_identifier" if explicit else "lexical_similarity", "authored_id": authored_id,
+                    "similarity": round(similarity, 3), "target_source": target.get("source_spans", [])})
+
+    for index, requirement in enumerate(requirements):
+        key, text = requirement_key(requirement, index), requirement.get("text", "")
+        display = requirement.get("id") or f"Unidentified requirement {index + 1}"
+        for case in cases:
+            infer("requirement", key, display, text, "usecase", case, case["name"], requirement.get("id"))
+        for message in messages:
+            infer("requirement", key, display, text, "sequence", message, message["message"], requirement.get("id"))
         for cls in classes:
-            cls_name = cls['name'].lower()
-            if cls_name not in cls_ids_with_req:
-                findings.append({
-                    'rule_id': 'FR-705',
-                    'severity': _sev('trace_missing_class'),
-                    'quoted_text': cls['name'],
-                    'explanation': f'Class "{cls["name"]}" is not linked to any requirement.',
-                    'requirement_id': None,
-                    'finding_type': 'deterministic',
-                    'artifact_type': 'traceability'
-                })
+            combined = " ".join([cls["name"], *cls.get("attributes", []), *cls.get("operations", [])])
+            infer("requirement", key, display, text, "class", cls, combined, requirement.get("id"))
+    for case in cases:
+        for message in messages:
+            infer("usecase", element_key(case), case["name"], case["name"], "sequence", message, message["message"])
+    participant_names = {part.get("alias", part["name"]): part["name"] for part in participants}
+    for element in [*participants, *messages]:
+        receiver = element.get("receiver") or participant_names.get(element.get("to"), element.get("to")) or element.get("name", "")
+        receiver = receiver.split(":")[-1].strip()
+        matches = [cls for cls in classes if receiver.casefold() in {cls["name"].casefold(), cls.get("alias", cls["name"]).casefold()}]
+        if len(matches) == 1:
+            cls = matches[0]
+            add("sequence", element_key(element, "message" if "message" in element else "name"),
+                element.get("message") or element["name"], "class", element_key(cls), cls["name"], "receiver_identity", 1.0)
+    direct = list(links.values())
+    sources = [("requirement", requirement_key(req, i), req.get("id") or f"Unidentified requirement {i+1}") for i, req in enumerate(requirements)]
+    sources += [("usecase", element_key(case), case["name"]) for case in cases]
+    for source_type, source_id, display in sources:
+        paths = reachable(direct, (source_type, source_id))
+        for cls in classes:
+            path = paths.get(("class", element_key(cls)))
+            if path and len(path) > 1:
+                add(source_type, source_id, display, "class", element_key(cls), cls["name"], "transitive",
+                    min(edge.get("confidence", 0) for edge in path),
+                    {"method": "transitive", "path": [[edge["source_type"], edge["source_id"], edge["target_type"], edge["target_id"]] for edge in path]})
+    return list(links.values())
 
+
+def trace_obligations(requirements, usecase_model=None, sequence_model=None, class_model=None, links=None):
+    links = links or []
+    cases = (usecase_model or {}).get("use_cases", [])
+    messages = [m for m in (sequence_model or {}).get("messages", []) if not m.get("is_reply")]
+    classes = (class_model or {}).get("classes", [])
+    req_nodes = [("requirement", requirement_key(req, index)) for index, req in enumerate(requirements)]
+    case_nodes = [("usecase", element_key(case)) for case in cases]
+    seq_nodes = [("sequence", element_key(message, "message")) for message in messages]
+    class_nodes = [("class", element_key(cls)) for cls in classes]
+    all_starts = set([*req_nodes, *case_nodes])
+    candidate_paths = {node: reachable(links, node) for node in all_starts}
+    confirmed_paths = {node: reachable(links, node, confirmed_only=True) for node in all_starts}
+    obligations = []
+
+    def add(rule, element, source_nodes, target_nodes, explanation):
+        candidates = [(source, target) for source in source_nodes for target in target_nodes]
+        obligations.append({"rule_id": rule, "element": element, "explanation": explanation,
+            "covered": any(target in candidate_paths.get(source, {}) for source, target in candidates),
+            "confirmed": any(target in confirmed_paths.get(source, {}) for source, target in candidates)})
+
+    if usecase_model is not None:
+        for index, req in enumerate(requirements):
+            if req.get("class") != "non_functional":
+                add("FR-701", req, [req_nodes[index]], case_nodes, "Requirement has no candidate path to a use case.")
+        for case, node in zip(cases, case_nodes):
+            add("FR-702", case, req_nodes, [node], "Use case has no candidate path from a requirement.")
+            if sequence_model is not None:
+                add("FR-703", case, [node], seq_nodes, "Use case has no candidate sequence message.")
+        for message, node in zip(messages, seq_nodes):
+            add("FR-704", message, case_nodes, [node], "Sequence message has no candidate path from a use case.")
+    if class_model is not None:
+        for cls, node in zip(classes, class_nodes):
+            add("FR-705", cls, req_nodes, [node], "Class has no candidate path from a requirement.")
+        if usecase_model is None:
+            for index, req in enumerate(requirements):
+                add("FR-705", req, [req_nodes[index]], class_nodes, "Requirement has no candidate path to a class.")
+    return obligations
+
+
+def check_traceability(requirements, usecase_model=None, sequence_model=None, class_model=None, existing_links=None):
+    severity_keys = {"FR-701": "trace_req_no_usecase", "FR-702": "trace_usecase_no_req", "FR-703": "trace_usecase_no_seq", "FR-704": "trace_seq_no_usecase", "FR-705": "trace_missing_class"}
+    rules = get_yaml_config().get("rules", {})
+    findings = []
+    for obligation in trace_obligations(requirements, usecase_model, sequence_model, class_model, existing_links):
+        if obligation["covered"]:
+            continue
+        element, rule = obligation["element"], obligation["rule_id"]
+        findings.append({"rule_id": rule, "severity": rules.get(severity_keys[rule], {}).get("severity", "major"),
+            "quoted_text": element.get("text") or element.get("name") or element.get("message"),
+            "explanation": obligation["explanation"], "requirement_id": element.get("id") if "text" in element else None,
+            "element_id": element.get("internal_id") or element.get("id"),
+            "finding_type": "deterministic", "artifact_type": "traceability",
+            "source_ref": element.get("source_ref"), "source_spans": element.get("source_spans", [])})
     return findings

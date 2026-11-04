@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime, Enum, Boolean
+from ..core.time import utcnow
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime, Enum, Boolean, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from ..core.database import Base
 
 class Finding(Base):
@@ -15,10 +15,12 @@ class Finding(Base):
     artifact_type = Column(String, nullable=True)
     requirement_id = Column(String, nullable=True)
     source_ref = Column(String, nullable=True)
+    source_spans = Column(JSON, nullable=True)
+    element_id = Column(String, nullable=True, index=True)
     finding_type = Column(String, default="deterministic")
     rewrite_suggestion = Column(Text, nullable=True)
     rewrite_attempts = Column(Integer, default=0)
     rewrite_passed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     project = relationship("Project", back_populates="findings")
