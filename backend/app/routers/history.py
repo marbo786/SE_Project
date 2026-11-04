@@ -15,12 +15,13 @@ from ..core.uploads import accept_upload, store_artifact, remove_unreferenced_fi
 from ..models.user import User
 from ..models.project import Project
 from ..models.artifact import Artifact
-from ..models.history import ProjectRevision, AnalysisRun, RunFinding, RunTraceLink, ReviewDecision, Requirement, UMLElement
+from ..models.history import ProjectRevision, AnalysisRun, RunFinding, RunTraceLink, ReviewDecision, Requirement, UMLElement, SuggestionDecision
 from ..schemas.project import ProjectCreate, ProjectOut
-from ..schemas.history import DraftCreate, RevisionUpdate, RequirementUpdate, DecisionCreate, ProjectLifecycle
+from ..schemas.history import DraftCreate, RevisionUpdate, RequirementUpdate, DecisionCreate, ProjectLifecycle, SuggestionInput
 from ..services import history as service
 from ..services.extraction import extract_draft, correct_requirement
 from ..pipeline.analyzer import run_analysis_pipeline
+from ..services.suggestions import view as suggestion_view
 
 router = APIRouter(prefix='/v1', tags=['revisions and runs'])
 
@@ -279,6 +280,7 @@ def report(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_
         payload['findings'] = [{**row.data, 'legacy_id': row.data.get('id'), 'id': row.id} for row in db.query(RunFinding).filter_by(run_id=run.id)]
         payload['trace_links'] = [{**row.data, 'legacy_id': row.data.get('id'), 'id': row.id} for row in db.query(RunTraceLink).filter_by(run_id=run.id)]
     return {**payload, 'run': service.run_summary(run),
+        'suggestion_decisions': [suggestion_view(row) for row in db.query(SuggestionDecision).filter_by(run_id=run.id).order_by(SuggestionDecision.id.desc())],
         'reviews': [decision_view(decision) for decision in decisions.values()]}
 
 
@@ -374,3 +376,21 @@ def lifecycle(project_id: int, data: ProjectLifecycle, db: Session = Depends(get
     service.audit(db, project, user.id, f'project_{data.action}')
     db.commit()
     return project_view(project)
+
+
+@router.post('/runs/{run_id}/suggestions/{finding_id}/decisions', status_code=201)
+def suggestion_decision(run_id: str, finding_id: int, data: SuggestionInput,
+                        idempotency_key: str = Header(..., min_length=1, max_length=128), if_match: str | None = Header(None),
+                        db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from ..services.suggestions import decide
+    run = run_access(db, user, run_id)
+    project = require_project_access(db, user, run.project_id)
+    body = {**data.model_dump(), 'finding_id':finding_id, 'if_match':if_match}
+    scope = f'suggestion:{run.id}'
+    if saved := service.replay(db, user.id, scope, idempotency_key, body):
+        return saved
+    result = decide(db, project, run, finding_id, user.id, data,
+                    expected_version(if_match) if if_match is not None else None)
+    service.remember(db, user.id, scope, idempotency_key, body, result)
+    db.commit()
+    return result

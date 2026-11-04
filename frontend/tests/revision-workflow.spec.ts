@@ -43,5 +43,40 @@ test('review extraction, analyze, branch, and reopen immutable history', async (
   await expect(page.getByRole('textbox', { name: 'Requirement text' })).toHaveValue('FR-1 The system shall respond within 2 seconds.')
   await page.goto(firstReportUrl)
   await expect(page.getByRole('region', { name: 'Quality score' })).toBeVisible()
+  // Controlled provider/report fixture exercises suggestion UI; API mutation
+  // isolation, CAS and immutable publication are covered by backend integration tests.
+  let decision: { id: number; finding_id: number; status: string; draft_id?: number } | null = null
+  const submitted: Record<string, unknown>[] = []
+  await page.route('**/api/v1/runs/*/report', async route => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    payload.findings = [{ id: 9001, rule_id: 'FR-401', severity: 'major', artifact_type: 'srs',
+      requirement_id: 'FR-1', quoted_text: 'The system shall respond fast.', explanation: 'Missing metric.',
+      rewrite_suggestion: 'The system shall respond within 2 seconds.', rewrite_passed: false,
+      rewrite_checks: { quantities_and_units_preserved: false } }]
+    payload.suggestion_decisions = decision ? [decision] : []
+    await route.fulfill({ response, json: payload })
+  })
+  await page.route('**/api/v1/runs/*/suggestions/9001/decisions', async route => {
+    const body = route.request().postDataJSON()
+    submitted.push(body)
+    expect(route.request().headers()['idempotency-key']).toBeTruthy()
+    decision = { id: submitted.length, finding_id: 9001, status: body.action, draft_id: body.draft_id }
+    await route.fulfill({ status: 201, json: { decision, draft_id: body.draft_id } })
+  })
+  await page.reload()
+  const review = page.getByRole('region', { name: 'Review rewrite suggestion' })
+  await expect(review).toBeVisible()
+  await review.screenshot({ path: testInfo.outputPath('suggestion-review-form.png') })
+  await expect(review.getByRole('button', { name: 'Apply to draft' })).toBeDisabled()
+  await review.getByRole('button', { name: 'Reject suggestion' }).click()
+  await expect(review.getByText('Suggestion rejected.', { exact: false })).toBeVisible()
+  await review.getByRole('textbox', { name: 'Proposed requirement' }).fill('The system shall respond within 3 seconds.')
+  await review.getByRole('checkbox').check()
+  await review.getByRole('button', { name: 'Apply to draft' }).click()
+  await expect(review.getByRole('link', { name: 'Open draft and analyze' })).toBeVisible()
+  expect(submitted[0].action).toBe('rejected')
+  expect(submitted[1]).toMatchObject({ action: 'edited', text: 'The system shall respond within 3 seconds.', confirm_intent: true, expected_decision_id: 1 })
+  await review.screenshot({ path: testInfo.outputPath('suggestion-decision.png') })
   expect(errors).toEqual([])
 })

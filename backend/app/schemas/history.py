@@ -34,3 +34,11 @@ class DecisionCreate(StrictInput):
 class ProjectLifecycle(StrictInput):
     action: Literal['archive', 'restore', 'delete']
     confirmation: str | None = None
+
+
+class SuggestionInput(StrictInput):
+    action: Literal['accepted', 'edited', 'rejected']
+    expected_decision_id: int = Field(default=0, ge=0)
+    draft_id: int | None = None
+    text: str | None = Field(default=None, min_length=1, max_length=12000)
+    confirm_intent: bool = False

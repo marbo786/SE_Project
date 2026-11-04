@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     LLM_MAX_PROMPT_CHARACTERS: int = Field(default=24000, ge=100, le=100000)
     LLM_MAX_RESPONSE_CHARACTERS: int = Field(default=16000, ge=100, le=100000)
     LLM_RUN_TOKEN_BUDGET: int = Field(default=100000, ge=1, le=10000000)
+    LLM_RUN_COST_BUDGET_MICROUSD: int = Field(default=1000000, ge=0, le=1000000000)
+    LLM_PRICING: dict[str, dict[str, int]] = {}
+    LLM_BATCH_INPUT_TOKENS: int = Field(default=6000, ge=200, le=24000)
+    LLM_BATCH_ITEMS: int = Field(default=12, ge=1, le=20)
     LLM_CACHE_TTL_SECONDS: int = Field(default=86400, ge=0, le=604800)
     LLM_MODEL: str = "qwen/qwen3.8-27b"
     DATABASE_URL: str = "sqlite:///./srs_reviewer.db"

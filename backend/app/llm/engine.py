@@ -31,6 +31,10 @@ def get_provider():
     raise AIError("ai_provider_unavailable")
 
 
+def cost(tokens, price):
+    return (tokens * price + 999999) // 1000000
+
+
 def request_count(db, project_id):
     return (db.query(LLMLog).filter(LLMLog.project_id == project_id, LLMLog.cache_hit != "true").count()
         + db.query(LLMCall).filter(LLMCall.project_id == project_id, LLMCall.status != "cache_hit").count())
@@ -109,14 +113,30 @@ async def call_llm(system_prompt: str, user_prompt: str, db: Session = None,
             prior = db.query(LLMCall).filter(LLMCall.project_id == project_id)
             if run is not None:
                 prior = prior.filter(LLMCall.run_id == run.id)
+            prior = prior.all()
             charged = sum((row.prompt_tokens + row.completion_tokens) if row.usage_source == "provider"
                           else row.reserved_tokens for row in prior)
             if charged + reserved > settings.LLM_RUN_TOKEN_BUDGET:
                 db.rollback()
                 raise AIError("ai_token_budget_exceeded")
+            policy = (run.input_snapshot.get("ai_cost_policy") if run else None) or {
+                "budget": settings.LLM_RUN_COST_BUDGET_MICROUSD, "prices": settings.LLM_PRICING}
+            price = policy["prices"].get(f"{provider.provider_name}/{provider.default_model}")
+            priced = isinstance(price, dict) and all(type(price.get(k)) is int and 0 <= price[k] <= 1000000000000 for k in ("input", "output"))
+            reserve_cost = (cost(reserved - 2048, price["input"]) + cost(2048, price["output"])) if priced else None
+            if policy["budget"]:
+                if not priced or any(c.reserved_cost_microusd is None and c.status != "cache_hit" for c in prior):
+                    db.rollback()
+                    raise AIError("ai_pricing_required")
+                spent = sum(c.reported_cost_microusd if c.reported_cost_microusd is not None else (c.reserved_cost_microusd or 0) for c in prior)
+                if spent + reserve_cost > policy["budget"]:
+                    db.rollback()
+                    raise AIError("ai_cost_budget_exceeded")
             log = LLMCall(project_id=project_id, run_id=run.id if run else None,
                 provider=provider.provider_name, model=provider.default_model, prompt_hash=prompt_hash,
-                status="pending", usage_source="reserved_unknown", reserved_tokens=reserved)
+                status="pending", usage_source="reserved_unknown", reserved_tokens=reserved,
+                reserved_cost_microusd=reserve_cost, input_price=price["input"] if priced else None,
+                output_price=price["output"] if priced else None)
             db.add(log)
             db.commit()
         try:
@@ -132,6 +152,8 @@ async def call_llm(system_prompt: str, user_prompt: str, db: Session = None,
             if all(type(value) is int and value >= 0 for value in usage):
                 log.prompt_tokens, log.completion_tokens = usage
                 log.usage_source = "provider"
+                if log.input_price is not None:
+                    log.reported_cost_microusd = cost(usage[0], log.input_price) + cost(usage[1], log.output_price)
             log.latency_ms = response.latency_ms
             log.status = "received"
             db.commit()
@@ -180,4 +202,7 @@ def usage_summary(db, run_id):
     return {"provider_calls": sum(c.status != "cache_hit" for c in calls),
             "cache_hits": sum(c.status == "cache_hit" for c in calls),
             "reported_tokens": reported, "unknown_usage_calls": len(unknown),
-            "reserved_unknown_tokens": sum(c.reserved_tokens for c in unknown)}
+            "reserved_unknown_tokens": sum(c.reserved_tokens for c in unknown),
+            "estimated_cost_microusd": sum(c.reported_cost_microusd or 0 for c in calls),
+            "reserved_unknown_cost_microusd": sum(c.reserved_cost_microusd or 0 for c in unknown),
+            "unpriced_calls": sum(c.input_price is None and c.status != "cache_hit" for c in calls)}

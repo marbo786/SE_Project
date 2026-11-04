@@ -1,5 +1,5 @@
 from ..core.time import utcnow
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Text, BigInteger
 from sqlalchemy.orm import relationship
 from ..core.database import Base
 
@@ -37,6 +37,10 @@ class LLMCall(Base):
     prompt_tokens = Column(Integer)
     completion_tokens = Column(Integer)
     latency_ms = Column(Float)
+    reserved_cost_microusd = Column(BigInteger)
+    reported_cost_microusd = Column(BigInteger)
+    input_price = Column(BigInteger)
+    output_price = Column(BigInteger)
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 

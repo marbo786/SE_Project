@@ -107,20 +107,25 @@ async def run_analysis_pipeline(project_id, _db=None, *, run_id=None):
         for artifact in artifacts:
             if artifact.artifact_type.startswith('uml_') and str(artifact.id) in extracted and models:
                 findings.extend(run_all_uml_checks(extracted[str(artifact.id)], models.get('class')))
+        coverage = {'testability':{'total':len(requirements),'reviewed':0,'complete':False},
+                    'conflicts':{'total':len(requirements)*(len(requirements)-1)//2,'reviewed':0,'complete':False},
+                    'repairs':{'total':0,'reviewed':0,'complete':False,'note':'Runs after requirement checks finish.'}} if run.input_snapshot['mode'] == 'ai' else {}
         if run.input_snapshot['mode'] == 'ai' and requirements:
             jobs.fence(db, run.id, token, stage='ai_checks'); db.commit()
             try:
                 jobs.fence(db, run.id, token); db.commit()
-                findings.extend(await check_testability(requirements, db=db, project_id=project_id))
+                await check_testability(requirements, db=db, project_id=project_id, coverage=coverage, output=findings)
                 jobs.fence(db, run.id, token); db.commit()
-                findings.extend(await check_conflicts(requirements, db=db, project_id=project_id))
+                await check_conflicts(requirements, db=db, project_id=project_id, coverage=coverage, output=findings)
                 from .repair import agentic_repair_loop
-                await agentic_repair_loop(findings, db=db, project_id=project_id)
+                await agentic_repair_loop(findings, db=db, project_id=project_id, requirements=requirements, coverage=coverage)
             except (jobs.LostLease, jobs.JobCancelled):
                 raise
             except Exception as error:
                 logging.getLogger(__name__).warning('Requested AI analysis failed (%s)', type(error).__name__)
-                warnings.append('Requested AI checks did not finish. Deterministic results remain available; retry AI analysis later.')
+                from ..llm.engine import AIError
+                code = str(error) if isinstance(error, AIError) else 'ai_checks_incomplete'
+                warnings.append(f'Requested AI checks did not finish ({code}). Review coverage and AI configuration. Deterministic results remain available.')
         for warning in warnings:
             findings.append({'rule_id': 'SYS-WARN', 'severity': 'minor', 'explanation': warning,
                 'finding_type': 'system', 'artifact_type': 'extraction'})
@@ -131,7 +136,7 @@ async def run_analysis_pipeline(project_id, _db=None, *, run_id=None):
         uml_count = sum(len(model.get(key, [])) for model in models.values() for key in ('actors', 'use_cases', 'classes', 'messages'))
         scores = compute_scores(findings, candidates, len(requirements), uml_count,
             profile=run.input_snapshot['profile'], complete=not warnings, obligations=obligations)
-        scores['details'].update(analysis_mode=run.input_snapshot['mode'], warnings=warnings)
+        scores['details'].update(analysis_mode=run.input_snapshot['mode'], warnings=warnings, ai_coverage=coverage)
         for finding in findings:
             if not finding.get('source_ref') and finding.get('requirement_id'):
                 matches = [req for req in requirements if req.get('id') == finding['requirement_id']]

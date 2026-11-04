@@ -153,7 +153,8 @@ async def test_cache_cleanup_preserves_unexpired_entries_and_accounting(scope, d
     assert prune_ai_cache(db_session, apply=True)["expired_entries"] == 1
     assert db_session.query(LLMCache).count() == 0
     assert engine.usage_summary(db_session, run.id) == {"provider_calls":1, "cache_hits":0,
-        "reported_tokens":20, "unknown_usage_calls":0, "reserved_unknown_tokens":0}
+        "reported_tokens":20, "unknown_usage_calls":0, "reserved_unknown_tokens":0,
+        "estimated_cost_microusd":0, "reserved_unknown_cost_microusd":0, "unpriced_calls":1}
 
 
 async def test_cache_is_project_scoped_even_for_identical_inputs(scope, client, headers, db_session, monkeypatch):

@@ -136,6 +136,22 @@ def test_postgres_migration_and_concurrent_revision_allocation(monkeypatch):
             assert sorted(pool.map(request, range(2))) == ["ai_request_budget_exceeded", "sent"]
         with factory() as db:
             assert db.query(LLMCall).count() == 1
+        from app.core.config import get_settings
+        monkeypatch.setattr(get_settings(), "LLM_RUN_COST_BUDGET_MICROUSD", 3000)
+        monkeypatch.setattr(get_settings(), "LLM_PRICING", {"fixture/fixture":{"input":1000000,"output":1000000}})
+        monkeypatch.setattr(gateway, "get_yaml_config", lambda: {"agentic_repair":{"max_llm_calls_per_project":50}})
+        class TimeoutProvider(Provider):
+            async def complete(self, *args):
+                raise TimeoutError()
+        monkeypatch.setattr(gateway, "get_provider", TimeoutProvider)
+        def cost_request(_):
+            with factory() as db:
+                try:
+                    asyncio.run(gateway.call_llm("JSON", "test", db, ids[1], retry=1))
+                except gateway.AIError as error:
+                    return str(error)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(cost_request, range(2))) == ["ai_cost_budget_exceeded", "ai_provider_failed"]
         migrate(engine, '20261103_evidence', down=True)
         migrate(engine, 'head')
     finally:
