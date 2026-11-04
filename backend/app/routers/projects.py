@@ -77,7 +77,6 @@ def queue_run(db, user, project_id, background_tasks, idempotency_key, *, repeat
     result = {'message': 'Analysis started', 'run_id': run.id}
     service.remember(db, user.id, scope, idempotency_key, body, result)
     db.commit()
-    background_tasks.add_task(run_analysis_pipeline, project.id, run_id=run.id)
     return result
 
 

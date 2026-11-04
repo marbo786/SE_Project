@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from .base import BaseLLMProvider, LLMResponse
 from .groq_provider import GroqProvider
 from .mock_provider import MockLLMProvider
-from ..core.config import get_settings
+from ..core.config import get_settings, run_guard
 from ..models.llm_log import LLMLog
 
 def get_provider() -> BaseLLMProvider:
@@ -27,6 +27,8 @@ async def call_llm(
 ) -> str:
     """Call LLM with caching, logging, and retry."""
     provider = get_provider()
+    if guard := run_guard.get():
+        guard()
     provider_name = provider.provider_name
     model_name = provider.default_model
     
@@ -53,6 +55,8 @@ async def call_llm(
     last_error = None
     backoff = 1.0
     for attempt in range(retry):
+        if guard := run_guard.get():
+            guard()
         try:
             response: LLMResponse = await provider.complete(system_prompt, user_prompt)
             if db:

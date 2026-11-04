@@ -47,6 +47,11 @@ class AnalysisRun(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+    attempt_id = Column(String(36), nullable=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    heartbeat_at = Column(DateTime, nullable=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    cancel_requested = Column(Boolean, nullable=False, default=False)
     __table_args__ = (UniqueConstraint("project_id", "idempotency_key", name="uq_run_request"),
         CheckConstraint("status IN ('queued', 'running', 'completed', 'partial', 'failed', 'cancelled')", name="ck_run_status"))
 
@@ -60,6 +65,28 @@ class RunFinding(Base):
     severity = Column(String(16), nullable=False)
     element_key = Column(String(512), nullable=True)
     data = Column(JSON, nullable=False)
+
+
+class OutboxEvent(Base):
+    __tablename__ = 'outbox_events'
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(36), ForeignKey('analysis_runs.id'), nullable=False, unique=True)
+    available_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    published_at = Column(DateTime, nullable=True)
+    dispatch_attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(64), nullable=True)
+
+
+class RunStage(Base):
+    __tablename__ = 'run_stages'
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(36), ForeignKey('analysis_runs.id'), nullable=False, index=True)
+    stage = Column(String(80), nullable=False)
+    attempt_id = Column(String(36), nullable=False)
+    output_hash = Column(String(64), nullable=False)
+    output = Column(JSON, nullable=False)
+    completed_at = Column(DateTime, nullable=False, default=utcnow)
+    __table_args__ = (UniqueConstraint('run_id', 'stage', name='uq_run_stage'),)
 
 
 class RunTraceLink(Base):

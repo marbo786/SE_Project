@@ -3,8 +3,10 @@ from functools import lru_cache
 import yaml
 import os
 from contextvars import ContextVar
+from pydantic import Field
 
 run_config = ContextVar("run_config", default=None)
+run_guard = ContextVar("run_guard", default=None)
 
 _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 _backend_env = os.path.join(_backend_dir, ".env")
@@ -30,6 +32,13 @@ class Settings(BaseSettings):
     PARSER_TIMEOUT_SECONDS: int = 20
     PARSER_MEMORY_MB: int = 512
     MAX_PROJECTS_PER_USER: int = 100
+    JOB_BACKEND: str = 'local'
+    REDIS_URL: str = 'redis://localhost:6379/0'
+    JOB_LEASE_SECONDS: int = Field(default=90, ge=2, le=3600)
+    JOB_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=10)
+    JOB_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
+    JOB_REDISPATCH_SECONDS: int = Field(default=30, ge=1, le=300)
+    JOB_POLL_SECONDS: float = Field(default=1.0, ge=0.1, le=60)
     APP_ENV: str = "development"
     COOKIE_SECURE: bool = False
     PUBLIC_URL: str = "http://localhost:5173"

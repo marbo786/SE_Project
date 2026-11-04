@@ -31,6 +31,9 @@ def analyze(client, headers, project, revision, key='run-history'):
     response = client.post(f"/v1/projects/{project['id']}/revisions/{revision['id']}/runs",
         headers={**headers, 'If-Match': str(revision['edit_version']), 'Idempotency-Key': key})
     assert response.status_code == 202, response.text
+    import asyncio
+    from app.pipeline.analyzer import run_analysis_pipeline
+    asyncio.run(run_analysis_pipeline(project['id'], run_id=response.json()['id']))
     return response.json()
 
 
@@ -142,6 +145,7 @@ def test_new_resources_are_private_and_lifecycle_is_reversible(client, headers, 
     run = analyze(client, headers, project, revision)
     stranger = client.post('/auth/register', json={'name': 'Other', 'email': 'other@example.com', 'password': 'another-password-123'}).json()
     other = {'Authorization': 'Bearer ' + stranger['access_token']}
+    assert client.post(f"/v1/runs/{run['id']}/cancel", headers=other).status_code == 404
     for url in [f"/v1/projects/{project['id']}", f"/v1/projects/{project['id']}/revisions", f"/v1/runs/{run['id']}", f"/v1/runs/{run['id']}/report",
         f"/v1/runs/{run['id']}/findings", f"/v1/projects/{project['id']}/artifacts/{revision['artifacts'][0]['id']}/source"]:
         assert client.get(url, headers=other).status_code == 404, url

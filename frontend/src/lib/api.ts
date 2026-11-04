@@ -82,6 +82,7 @@ export interface Revision {
 }
 export interface RunSummary {
   id: string; project_id: number; revision_id: number; status: string; stage: string; created_at: string; error_message?: string; has_report: boolean
+  attempt_count: number; cancel_requested: boolean
 }
 export const historyApi = {
   create: (data: unknown, key: string) => api.post('/v1/projects', data, { headers: { 'Idempotency-Key': key } }),
@@ -102,6 +103,7 @@ export const historyApi = {
   runs: (pid: number) => api.get<{ items: RunSummary[]; total: number }>(`/v1/projects/${pid}/runs?limit=100`),
   report: (runId: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/report`),
   run: (runId: string) => api.get<RunSummary>(`/v1/runs/${encodeURIComponent(runId)}`),
+  cancel: (runId: string) => api.post<RunSummary>(`/v1/runs/${encodeURIComponent(runId)}/cancel`),
   compare: (runId: string, previous: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/compare/${encodeURIComponent(previous)}`),
   decision: (runId: string, data: unknown) => api.post(`/v1/runs/${encodeURIComponent(runId)}/decisions`, data),
   exportTrace: (runId: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/traceability.csv`, { responseType: 'blob' }),

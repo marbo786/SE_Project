@@ -401,6 +401,11 @@ export default function ReportPage() {
         <Button variant="outline" disabled={report.data?.live.status === 'analyzing'} onClick={async () => { try { const draft = await historyApi.draft(projectId, report.data?.run?.revision_id); navigate(`/projects/${projectId}/revisions/${draft.data.id}`) } catch (error) { setActionError(apiError(error)) } }}>Edit a new draft</Button>
       </section>
       {report.data?.live.latest_run_id && report.data.live.latest_run_id !== report.data.run?.id && <p role="status" className="p-3 border border-amber-300 rounded">Showing a preserved report. A newer analysis attempt is available in the history menu. <button className="underline" onClick={() => setParams({ run: report.data!.live.latest_run_id! })}>View latest attempt</button></p>}
+      {report.data?.run && ['queued', 'running'].includes(report.data.run.status) && <div role="status" className="p-4 border rounded space-y-2">
+        <p>{report.data.run.status === 'queued' ? 'Queued for analysis' : `Analysis stage: ${report.data.run.stage.replace(/_/g, ' ')}`} · Attempt {report.data.run.attempt_count}</p>
+        {report.data.run.cancel_requested ? <p>Cancellation requested. An external AI request already in progress may finish; its result will not be published.</p> : <Button variant="outline" onClick={async () => { try { await historyApi.cancel(report.data!.run!.id); await queryClient.invalidateQueries({ queryKey: ['project-report', projectId] }) } catch (error) { setActionError(apiError(error)) } }}>Cancel analysis</Button>}
+      </div>}
+      {report.data?.run?.status === 'cancelled' && <p role="status" className="p-4 border rounded">This analysis was cancelled. Earlier reports remain available in history.</p>}
       {actionError && <p role="alert" className="p-3 border border-red-400 text-red-300">{actionError}</p>}
       {report.isError && <p role="alert">Unable to refresh. Showing the last loaded report. <button onClick={() => report.refetch()}>Retry</button></p>}
       {comparison.isError && activeTab === 'compare' && <p role="alert">{apiError(comparison.error, 'Comparison is unavailable.')} <button onClick={() => comparison.refetch()}>Retry</button></p>}

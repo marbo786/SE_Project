@@ -22,6 +22,7 @@ def main(browser=False):
             processes = []
             try:
                 processes.append(subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "18003"], cwd=root / "backend", env=env, stdout=log, stderr=log, creationflags=flags))
+                processes.append(subprocess.Popen([sys.executable, '-m', 'app.jobs.worker'], cwd=root / 'backend', env=env, stdout=log, stderr=log, creationflags=flags))
                 processes.append(subprocess.Popen([shutil.which("node"), str(root / "frontend/node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "15173", "--strictPort"], cwd=root / "frontend", env=env, stdout=log, stderr=log, creationflags=flags))
                 os.environ["SMOKE_API_URL"] = "http://127.0.0.1:15173/api"
                 smoke()

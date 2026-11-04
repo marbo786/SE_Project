@@ -1,34 +1,73 @@
-services:
-  backend:
-    mem_limit: 1g
-    pids_limit: 128
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./backend:/app
-      - uploads_data:/app/uploads
-    environment:
-      - DATABASE_URL=sqlite:///./srs_reviewer.db
-    env_file:
-      - ./backend/.env
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+x-app: &app
+  build:
+    context: ./backend
+  env_file: [./backend/.env]
+  environment: &app-env
+    DATABASE_URL: postgresql+psycopg://srs:srs_local_dev@postgres:5432/srs
+    REDIS_URL: redis://redis:6379/0
+    JOB_BACKEND: celery
+    UPLOAD_DIR: /app/uploads
+  volumes:
+    - uploads_data:/app/uploads
+  mem_limit: 1g
+  pids_limit: 128
 
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: srs
+      POSTGRES_PASSWORD: srs_local_dev
+      POSTGRES_DB: srs
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U srs']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy noeviction
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    <<: *app
+    command: python -m alembic upgrade head
+    depends_on:
+      postgres: {condition: service_healthy}
+  backend:
+    <<: *app
+    ports: ['127.0.0.1:8001:8000']
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  worker:
+    <<: *app
+    command: celery -A app.jobs.celery_app:celery worker --loglevel=INFO --concurrency=1
+    stop_grace_period: 30s
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  dispatcher:
+    <<: *app
+    command: python -m app.jobs.dispatcher
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend/src:/app/src
-    depends_on:
-      - backend
+    ports: ['127.0.0.1:5173:5173']
     environment:
       API_PROXY_TARGET: http://backend:8000
+    depends_on: [backend]
     command: npm run dev -- --host
 
 volumes:
   uploads_data:
+  postgres_data:
+  redis_data:

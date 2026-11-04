@@ -39,6 +39,7 @@ jobs:
         cp backend/.env.example backend/.env
         docker compose up -d --build
         python scripts/smoke_http.py
+        python scripts/smoke_recovery_compose.py
     - name: Stop disposable services
       if: always()
       run: docker compose down
