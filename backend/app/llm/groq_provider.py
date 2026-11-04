@@ -43,8 +43,8 @@ class GroqProvider(BaseLLMProvider):
         if resp.status_code != 200:
             if resp.status_code == 429:
                 class RateLimitError(Exception): pass
-                raise RateLimitError(f"Groq 429 Rate Limit: {resp.text}")
-            raise RuntimeError(f"Groq API error {resp.status_code}: {resp.text}")
+                raise RateLimitError("ai_rate_limited")
+            raise RuntimeError("ai_provider_failed")
             
         latency = (time.time() - start) * 1000
         data = resp.json()
@@ -56,5 +56,6 @@ class GroqProvider(BaseLLMProvider):
             completion_tokens=usage.get("completion_tokens", 0),
             latency_ms=latency,
             provider="groq",
-            model=chosen_model
+            model=chosen_model,
+            finish_reason=data["choices"][0].get("finish_reason", "unknown")
         )

@@ -71,6 +71,8 @@ interface Finding {
   source_ref?: string
   source_spans?: { artifact_id?: number }[]
   rewrite_suggestion?: string
+  rewrite_checks?: Record<string, boolean>
+  rewrite_review_status?: string
   rewrite_passed?: boolean
   rewrite_attempts?: number
 }
@@ -229,7 +231,7 @@ function FindingItem({ finding }: { finding: Finding }) {
                         ? "text-[#68A86C] border-[#4E8752]/40 bg-[#4E8752]/10"
                         : "text-[#E06C6C] border-[#C04848]/40 bg-[#C04848]/10"
                     )}>
-                      {finding.rewrite_passed ? 'CHECKS PASSED · REVIEW REQUIRED' : 'REVIEW REQUIRED'}
+                      {finding.rewrite_passed ? 'LEXICAL CHECKS PASSED · REVIEW REQUIRED' : 'REVIEW REQUIRED'}
                     </span>
                   )}
                   {finding.rewrite_attempts !== undefined && finding.rewrite_attempts > 0 && (
@@ -244,6 +246,11 @@ function FindingItem({ finding }: { finding: Finding }) {
               <div className="p-2.5 rounded border border-[#303136] bg-[#141518] text-xs font-mono text-[#E7E7E9] whitespace-pre-wrap leading-relaxed">
                 {finding.rewrite_suggestion}
               </div>
+              {finding.rewrite_checks && <ul className="mt-2 text-xs text-[#A0A1A8]">
+                {Object.entries(finding.rewrite_checks).map(([check, passed]) =>
+                  <li key={check}>{passed ? 'Passed' : 'Needs review'}: {check.replace(/_/g, ' ')}</li>)}
+                <li>Human review is required to confirm intent and approve any new thresholds.</li>
+              </ul>}
             </div>
           )}
         </div>

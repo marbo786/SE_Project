@@ -11,6 +11,7 @@ class LLMResponse:
     provider: str
     model: str
     cache_hit: bool = False
+    finish_reason: str = "stop"
 
 class BaseLLMProvider(ABC):
     @abstractmethod
