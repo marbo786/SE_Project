@@ -92,7 +92,7 @@ def test_populated_history_upgrade_downgrade_and_restore(tmp_path):
 
 
 @pytest.mark.skipif(not os.environ.get('TEST_POSTGRES_URL'), reason='PostgreSQL integration runs in CI or with TEST_POSTGRES_URL')
-def test_postgres_migration_and_concurrent_revision_allocation():
+def test_postgres_migration_and_concurrent_revision_allocation(monkeypatch):
     url = os.environ['TEST_POSTGRES_URL']
     schema = 'srs_test_' + uuid.uuid4().hex
     admin = create_engine(url)
@@ -114,6 +114,28 @@ def test_postgres_migration_and_concurrent_revision_allocation():
         assert len(set(results)) == 1 and results[0][1] == 2
         with factory() as db:
             assert db.query(ProjectRevision).filter_by(project_id=ids[0]).count() == 2
+        # Separate sessions contend for one remaining AI request reservation.
+        import asyncio
+        from app.llm import engine as gateway
+        from app.llm.base import LLMResponse
+        from app.models.llm_log import LLMCall
+        class Provider:
+            provider_name = default_model = "fixture"
+            async def complete(self, *args):
+                return LLMResponse('{"ok":true}', 1, 1, 1, "fixture", "fixture")
+        monkeypatch.setattr(gateway, "get_provider", Provider)
+        monkeypatch.setattr(gateway, "get_yaml_config", lambda: {"agentic_repair":{"max_llm_calls_per_project":1}})
+        def request(_):
+            with factory() as db:
+                try:
+                    asyncio.run(gateway.call_llm("JSON", "test", db, ids[0]))
+                    return "sent"
+                except gateway.AIError as error:
+                    return str(error)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(request, range(2))) == ["ai_request_budget_exceeded", "sent"]
+        with factory() as db:
+            assert db.query(LLMCall).count() == 1
         migrate(engine, '20261103_evidence', down=True)
         migrate(engine, 'head')
     finally:

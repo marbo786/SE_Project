@@ -8,7 +8,7 @@ from ..models.artifact import Artifact
 from ..models.finding import Finding
 from ..models.traceability import TraceLink
 from ..models.score import QualityScore
-from ..models.llm_log import LLMLog
+from ..models.llm_log import LLMLog, LLMCall, LLMCache
 from ..models.history import (ProjectRevision, AnalysisRun, RunFinding, RunTraceLink,
     RunQualityScore, ReviewDecision, Requirement, UMLElement, IdempotencyRecord, OutboxEvent, RunStage)
 from .history import ACTIVE, lock_project, audit
@@ -39,7 +39,7 @@ def purge_expired(db, *, apply=False, now=None):
             db.query(model).filter(model.run_id.in_(runs)).delete(synchronize_session=False)
         for model in (Requirement, UMLElement):
             db.query(model).filter(model.revision_id.in_(revisions)).delete(synchronize_session=False)
-        for model in (Finding, TraceLink, QualityScore, LLMLog, Artifact, AnalysisRun):
+        for model in (Finding, TraceLink, QualityScore, LLMLog, LLMCall, LLMCache, Artifact, AnalysisRun):
             db.query(model).filter_by(project_id=pid).delete(synchronize_session=False)
         db.query(ProjectRevision).filter_by(project_id=pid).delete(synchronize_session=False)
         scopes = [f'draft:{pid}', f'run:{pid}', f'legacy_run:{pid}', *[f'upload:{rid}' for rid in revisions]]
@@ -54,3 +54,14 @@ def purge_expired(db, *, apply=False, now=None):
     if not apply:
         db.rollback()
     return result
+
+
+def prune_ai_cache(db, *, apply=False, now=None):
+    expired = db.query(LLMCache).filter(LLMCache.expires_at <= (now or utcnow()))
+    count = expired.count()
+    if apply:
+        expired.delete(synchronize_session=False)
+        db.commit()
+    else:
+        db.rollback()
+    return {"apply": apply, "expired_entries": count}

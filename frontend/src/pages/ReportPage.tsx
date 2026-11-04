@@ -283,6 +283,7 @@ export default function ReportPage() {
       const reviews = (snapshot?.reviews || []) as { id: number; trace_id?: number; status: string }[]
       const links = ((snapshot?.trace_links || []) as TraceLink[]).map(link => ({ ...link, status: reviews.find(review => review.trace_id === link.id)?.status || link.status }))
       return { live, runs: history.data.items, run, reviews,
+        aiUsage: snapshot?.ai_usage as { provider_calls: number; cache_hits: number; reported_tokens: number; unknown_usage_calls: number; reserved_unknown_tokens: number } | undefined,
         project: { ...live, version: revision?.number || live.version, quality_score: snapshot?.score,
           analysis_mode: revision?.analysis_mode || live.analysis_mode,
           status: run ? ({ completed: 'done', failed: 'error', queued: 'analyzing', running: 'analyzing' }[run.status] || run.status) : live.status,
@@ -418,6 +419,10 @@ export default function ReportPage() {
       {comparison.isError && activeTab === 'compare' && <p role="alert">{apiError(comparison.error, 'Comparison is unavailable.')} <button onClick={() => comparison.refetch()}>Retry</button></p>}
       {project?.status === 'analyzing' && <p role="status" aria-live="polite" className="p-4 border border-blue-400 rounded">Analysis is running. This report updates automatically. Any results below are from the previous completed analysis.</p>}
       {report.data?.live.status === 'pending' && <p role="status" className="p-4 border rounded">A draft is ready to edit. <Link className="underline" to={`/projects/${projectId}/revisions/${report.data.live.current_revision_id}`}>Continue draft</Link></p>}
+      {project?.analysis_mode === 'ai' && report.data?.aiUsage && <section aria-label="AI usage" className="p-4 border border-[#51535c] rounded text-sm space-y-1">
+        <p>AI usage: {report.data.aiUsage.provider_calls} provider calls, {report.data.aiUsage.cache_hits} cached responses, {report.data.aiUsage.reported_tokens} provider-reported tokens.</p>
+        {report.data.aiUsage.unknown_usage_calls > 0 && <p>Usage is unknown for {report.data.aiUsage.unknown_usage_calls} calls. Their {report.data.aiUsage.reserved_unknown_tokens} reserved tokens remain charged against this run's budget; this is not measured usage or a cost estimate.</p>}
+      </section>}
       {project?.status === 'partial' && <p role="status" className="p-4 border border-amber-400 rounded">Some inputs or requested checks could not be fully evaluated. Review the warnings below; no final grade is assigned.</p>}
       {project?.analysis_error && <p role="alert" className="p-4 border border-red-400 rounded">{project.analysis_error}</p>}
       {project?.quality_score && <section aria-label="Quality score" className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-3">

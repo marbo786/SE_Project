@@ -15,7 +15,7 @@ from ..models.user import User
 from ..models.history import (ProjectRevision, AnalysisRun, RunFinding, RunTraceLink,
     RunQualityScore, Requirement, UMLElement, ReviewDecision, AuditEvent, IdempotencyRecord)
 
-VERSIONS = {"parser": "2", "rules": "2", "rubric": "2", "report": "1", "ai": "2"}
+VERSIONS = {"parser": "2", "rules": "2", "rubric": "2", "report": "1", "ai": "3"}
 ACTIVE = {"queued", "running"}
 TERMINAL = {"completed", "partial", "failed", "cancelled"}
 

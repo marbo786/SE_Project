@@ -4,7 +4,7 @@ import logging
 import asyncio
 from contextlib import suppress
 from starlette.concurrency import run_in_threadpool
-from ..core.config import run_config, run_guard, get_settings
+from ..core.config import run_config, run_guard, ai_run, get_settings
 from ..core.database import SessionLocal
 from ..core.time import utcnow
 from ..models.project import Project
@@ -29,6 +29,7 @@ async def run_analysis_pipeline(project_id, _db=None, *, run_id=None):
     db = SessionLocal()
     context_token = None
     guard_token = None
+    ai_token = None
     run = None
     token = None
     heartbeat = None
@@ -61,6 +62,7 @@ async def run_analysis_pipeline(project_id, _db=None, *, run_id=None):
                 jobs.fence(guard_db, run.id, token)
                 guard_db.commit()
         guard_token = run_guard.set(check_call)
+        ai_token = ai_run.set(run.id)
         context_token = run_config.set(run.input_snapshot.get('rules_config'))
         manifest = run.input_snapshot.get('artifacts', [])
         artifacts = db.query(Artifact).filter(Artifact.id.in_([a['id'] for a in manifest]), Artifact.revision_id == run.revision_id).all()
@@ -168,4 +170,6 @@ async def run_analysis_pipeline(project_id, _db=None, *, run_id=None):
             run_config.reset(context_token)
         if guard_token is not None:
             run_guard.reset(guard_token)
+        if ai_token is not None:
+            ai_run.reset(ai_token)
         db.close()

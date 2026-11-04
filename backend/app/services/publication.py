@@ -61,7 +61,8 @@ def publish_run(db, project, run, findings, candidates, scores, extractions, art
     run.status = 'completed' if scores['details']['complete'] else 'partial'
     run.stage, run.finished_at = 'finished', now
     run.counts = {'requirements': len(lineages), 'findings': len(findings), 'trace_links': len(candidates)}
-    run.report = {'schema_version': '1', 'run_id': run.id, 'revision_id': run.revision_id,
+    from ..llm.engine import usage_summary
+    run.report = {'ai_usage': usage_summary(db, run.id), 'schema_version': '1', 'run_id': run.id, 'revision_id': run.revision_id,
         'versions': run.versions, 'input_hash': run.input_hash, 'score': score_payload,
         'findings': immutable_findings, 'trace_links': immutable_links, 'extractions': deepcopy(extractions),
         'warnings': scores['details'].get('warnings', []),

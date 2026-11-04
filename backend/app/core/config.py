@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from pydantic import Field
 
 run_config = ContextVar("run_config", default=None)
+ai_run = ContextVar("ai_run", default=None)
 run_guard = ContextVar("run_guard", default=None)
 
 _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = Field(default=60, ge=1, le=120)
     LLM_MAX_PROMPT_CHARACTERS: int = Field(default=24000, ge=100, le=100000)
     LLM_MAX_RESPONSE_CHARACTERS: int = Field(default=16000, ge=100, le=100000)
+    LLM_RUN_TOKEN_BUDGET: int = Field(default=100000, ge=1, le=10000000)
+    LLM_CACHE_TTL_SECONDS: int = Field(default=86400, ge=0, le=604800)
     LLM_MODEL: str = "qwen/qwen3.8-27b"
     DATABASE_URL: str = "sqlite:///./srs_reviewer.db"
     CORS_ORIGINS: str = "http://localhost:5173"

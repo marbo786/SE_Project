@@ -5,8 +5,8 @@ from dataclasses import dataclass
 @dataclass
 class LLMResponse:
     content: str
-    prompt_tokens: int
-    completion_tokens: int
+    prompt_tokens: Optional[int]
+    completion_tokens: Optional[int]
     latency_ms: float
     provider: str
     model: str
