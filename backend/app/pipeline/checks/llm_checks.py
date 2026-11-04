@@ -2,13 +2,13 @@
 LLM-assisted requirement checks: testability and conflict detection.
 """
 import json
-from typing import List, Dict, Optional, Any
-from pydantic import BaseModel, ValidationError, ConfigDict
-from ...llm.engine import call_llm
+from typing import List, Dict, Optional
+from pydantic import BaseModel, ConfigDict
+from ...llm.engine import call_llm, OutputValidationError
 from ...pipeline.redactor import Redactor
 from ...core.config import get_yaml_config
 
-class LLMCheckError(Exception):
+class LLMCheckError(ValueError):
     pass
 
 class StrictResponse(BaseModel):
@@ -65,30 +65,22 @@ Return a JSON object with a key 'rewrites' containing a list. Each item has:
 - 'rewrite_suggestion': the rewritten text
 Return ONLY valid JSON, no markdown, no extra text."""
 
-async def _call_and_parse(system_prompt: str, user_prompt: str, model_cls, db=None, project_id=None):
-    """Call LLM, parse JSON strictly, and validate with Pydantic. Retries once on invalid output."""
+async def _call_and_parse(system_prompt, user_prompt, model_cls, db=None, project_id=None, validate_refs=None):
+    """Only cache responses that pass schema and occurrence validation."""
+    def validate(text):
+        parsed = model_cls.model_validate_json(text)
+        if validate_refs:
+            validate_refs(parsed)
+        return parsed
     for attempt in range(2):
         try:
-            response_text = await call_llm(
-                system_prompt, user_prompt,
-                db=db, project_id=project_id, retry=3
-            )
-            # Remove any markdown code blocks if the LLM leaked them
-            response_text = response_text.strip()
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-                
-            data = json.loads(response_text)
-            validated = model_cls(**data)
-            return validated
-        except (json.JSONDecodeError, ValidationError) as e:
+            response = await call_llm(system_prompt, user_prompt, db=db, project_id=project_id,
+                retry=3, validator=validate, schema_version=f"{model_cls.__name__}:3")
+            return validate(response)
+        except (ValueError, OutputValidationError):
             if attempt == 1:
-                raise LLMCheckError("ai_output_validation_failed")
-            # Raw responses are not cached; this requests a fresh completion.
-            pass
-    raise LLMCheckError("LLM output validation failed after 2 attempts")
+                raise LLMCheckError("ai_output_validation_failed") from None
+    raise LLMCheckError("ai_output_validation_failed")
 
 
 async def check_testability(requirements: List[Dict], db=None, project_id: int = None) -> List[Dict]:
@@ -107,12 +99,13 @@ async def check_testability(requirements: List[Dict], db=None, project_id: int =
 
     user_prompt = f"Assess the testability of these requirements:\n\n{json.dumps(reqs_for_llm, indent=2)}"
 
-    validated = await _call_and_parse(TESTABILITY_SYSTEM_PROMPT, user_prompt, TestabilityResponse, db, project_id)
-    
     expected = {f"R{i}": req for i, req in enumerate(requirements)}
-    received = [result.requirement_id for result in validated.results]
-    if len(received) != len(expected) or set(received) != set(expected):
-        raise LLMCheckError("ai_requirement_coverage_invalid")
+    def validate_refs(parsed):
+        received = [result.requirement_id for result in parsed.results]
+        if len(received) != len(expected) or set(received) != set(expected):
+            raise LLMCheckError("ai_requirement_coverage_invalid")
+    validated = await _call_and_parse(TESTABILITY_SYSTEM_PROMPT, user_prompt, TestabilityResponse,
+                                      db, project_id, validate_refs)
     for result in validated.results:
         if not result.testable:
             req_id = result.requirement_id
@@ -147,15 +140,17 @@ async def check_conflicts(requirements: List[Dict], db=None, project_id: int = N
 
     user_prompt = f"Identify any conflicting requirements in this list:\n\n{json.dumps(reqs_for_llm, indent=2)}"
 
-    validated = await _call_and_parse(CONFLICT_SYSTEM_PROMPT, user_prompt, ConflictResponse, db, project_id)
-    
     expected = {f"R{i}": req for i, req in enumerate(requirements)}
-    seen = set()
+    def validate_refs(parsed):
+        seen = set()
+        for conflict in parsed.conflicts:
+            pair = tuple(sorted((conflict.req_id_1, conflict.req_id_2)))
+            if any(key not in expected for key in pair) or pair[0] == pair[1] or pair in seen:
+                raise LLMCheckError("ai_conflict_reference_invalid")
+            seen.add(pair)
+    validated = await _call_and_parse(CONFLICT_SYSTEM_PROMPT, user_prompt, ConflictResponse,
+                                      db, project_id, validate_refs)
     for conflict in validated.conflicts:
-        pair = tuple(sorted((conflict.req_id_1, conflict.req_id_2)))
-        if any(key not in expected for key in pair) or pair[0] == pair[1] or pair in seen:
-            raise LLMCheckError("ai_conflict_reference_invalid")
-        seen.add(pair)
         findings.append({
             'rule_id': 'FR-404',
             'severity': severity,

@@ -52,8 +52,8 @@ class GroqProvider(BaseLLMProvider):
         usage = data.get("usage", {})
         return LLMResponse(
             content=content,
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
             latency_ms=latency,
             provider="groq",
             model=chosen_model,

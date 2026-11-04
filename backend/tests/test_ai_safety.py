@@ -2,7 +2,7 @@ import json
 import pytest
 from app.llm import engine
 from app.llm.base import LLMResponse
-from app.models.llm_log import LLMLog
+from app.models.llm_log import LLMLog, LLMCall
 from app.core.config import run_guard
 from app.services.jobs import JobCancelled
 from app.pipeline.checks import llm_checks
@@ -32,8 +32,9 @@ async def test_gateway_redacts_all_prompts_and_never_reuses_raw_cache(client, he
         assert await engine.call_llm("JSON contact user@example.com", "Call 555-123-4567", db_session, pid) == '{"ok":true}'
     assert len(provider.prompts) == 2
     assert all("user@example.com" not in system and "555-123-4567" not in user for system, user in provider.prompts)
-    logs = db_session.query(LLMLog).order_by(LLMLog.id).all()[1:]
-    assert all(log.response_text is None for log in logs)
+    assert db_session.query(LLMLog).count() == 1
+    assert db_session.query(LLMCall).count() == 2
+    assert "response_text" not in LLMCall.__table__.columns
 
 
 async def test_failures_consume_budget_without_leaking_diagnostics(client, headers, db_session, monkeypatch):
@@ -44,7 +45,8 @@ async def test_failures_consume_budget_without_leaking_diagnostics(client, heade
     with pytest.raises(engine.AIError, match="^ai_request_budget_exceeded$"):
         await engine.call_llm("JSON", "private", db_session, pid)
     assert len(provider.prompts) == 2
-    assert all(log.cache_hit == "failed_unknown_usage" and log.response_text is None for log in db_session.query(LLMLog))
+    assert db_session.query(LLMCall).count() == 2
+    assert all(log.status == "provider_failed" and log.usage_source == "reserved_unknown" for log in db_session.query(LLMCall))
 
 
 async def test_truncation_and_cancellation_are_not_success_or_retried(monkeypatch):
