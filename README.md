@@ -23,7 +23,7 @@ flowchart TD
 
 1. **Parser Stage**: Extracts section hierarchies and individual requirement statements from DOCX or PDF files. Converts PlantUML text into an internal UML graph model.
 2. **Deterministic Checks**: Runs high-speed regex and logic rules to find missing identifiers, duplicate IDs, ambiguous lexicon words, missing NFR metrics, and disconnected UML actors.
-3. **LLM Checks & Agentic Repair Loop**: For requirements failing deterministic checks, the tool calls an LLM to rewrite them, feeding the output back into the deterministic parser up to 3 times until it passes. Also checks for logical conflicts and testability using the LLM.
+3. **AI checks and reviewed suggestions**: Bounded testability and exhaustive conflict-pair batches validate occurrence coverage and source quotes. Rewrite proposals pass deterministic guards and an advisory semantic comparison, then require a human decision. Accepted or edited suggestions update a draft for fresh analysis; published reports remain immutable. See [AI safety, budgets, and evaluation](docs/AI_SAFETY.md).
 4. **Traceability Linker**: Calculates Jaccard overlap and uses transitive tracing (Requirement -> Use Case -> Sequence -> Class) to build a traceability matrix.
 5. **Scoring Engine**: Normalizes penalties by document size to calculate the final quality score.
 
@@ -45,4 +45,4 @@ Completed phases are merged into `main` after checks pass. See [implementation s
 
 - The parser depends on standard IEEE numbering and the keyword "shall". Requirements written entirely in narrative form without identifiers or standard keywords may be skipped.
 - PlantUML parsing relies on regex heuristics rather than a full grammar parser, so highly complex or nested diagram syntax might be misinterpreted.
-- Deterministic analysis works offline. Optional AI checks use an external provider and remain subject to provider availability and the pending M5 validation work.
+- Deterministic analysis works offline. Optional AI checks use an external provider, configured model prices, and request/token/cost budgets. Their coverage and estimates are visible in reports; live-model accuracy remains a release-qualification measurement.

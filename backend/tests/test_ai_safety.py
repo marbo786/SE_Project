@@ -78,7 +78,7 @@ async def test_testability_rejects_missing_unknown_duplicate_occurrences(monkeyp
 async def test_duplicate_authored_ids_map_to_exact_source(monkeypatch):
     async def fake(*args, **kwargs):
         return json.dumps({"results":[{"requirement_id":"R0","testable":True},
-            {"requirement_id":"R1","testable":False,"reason":"Vague"}]})
+            {"requirement_id":"R1","testable":False,"reason":"Vague","evidence":"fast"}]})
     monkeypatch.setattr(llm_checks, "call_llm", fake)
     findings = await llm_checks.check_testability([
         {"id":"FR-1","text":"The system shall save.","source_ref":"line 1"},
@@ -111,7 +111,7 @@ async def test_conflict_reference_validation(monkeypatch, conflicts):
         return json.dumps({"conflicts": conflicts})
     monkeypatch.setattr(llm_checks, "call_llm", fake)
     with pytest.raises(llm_checks.LLMCheckError):
-        await llm_checks.check_conflicts([{"id":"FR-1","text":"The system shall save."}])
+        await llm_checks.check_conflicts([{"id":"FR-1","text":"The system shall save."}, {"id":"FR-2","text":"The system shall not save."}])
 
 
 async def test_bad_schema_gets_fresh_completion_and_never_passes(monkeypatch):

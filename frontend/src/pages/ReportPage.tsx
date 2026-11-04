@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { projectsApi, historyApi, apiError, RunSummary } from '@/lib/api'
@@ -51,6 +51,7 @@ interface Project {
     overall_score: number | null
     computed_at: string
     details?: {
+      ai_coverage?: Record<string, { total: number; reviewed: number; complete: boolean; note?: string }>
       rubric_version: string
       profile: string
       note: string
@@ -70,10 +71,14 @@ interface Finding {
   finding_type?: string
   source_ref?: string
   source_spans?: { artifact_id?: number }[]
+  evidence?: string | string[]
+  related_requirement?: { id?: string; text: string; source_ref?: string }
+  rewrite_semantic_review?: { intent_preserved: boolean; explanation: string; original_quote: string; proposal_quote: string }
   rewrite_suggestion?: string
   rewrite_checks?: Record<string, boolean>
   rewrite_review_status?: string
   rewrite_passed?: boolean
+  rewrite_error?: string
   rewrite_attempts?: number
 }
 
@@ -142,7 +147,45 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function FindingItem({ finding }: { finding: Finding }) {
+interface SuggestionDecision { id: number; finding_id: number; status: string; draft_id?: number }
+
+function SuggestionReview({ finding, projectId, run, decision, saved }: { finding: Finding; projectId: number; run: RunSummary; decision?: SuggestionDecision; saved: () => Promise<unknown> }) {
+  const [text, setText] = useState(finding.rewrite_suggestion || '')
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const pending = useRef<{ signature: string; send: () => Promise<unknown> } | null>(null)
+  async function submit(reject: boolean) {
+    setBusy(true); setError('')
+    const action = reject ? 'rejected' : text === finding.rewrite_suggestion ? 'accepted' : 'edited'
+    const signature = JSON.stringify([action, text, confirmed, decision?.id])
+    try {
+      if (pending.current?.signature !== signature) {
+        const draft = reject ? null : (await historyApi.draft(projectId, run.revision_id)).data
+        const data = { action, expected_decision_id: decision?.id || 0,
+          ...(draft ? { draft_id: draft.id, text, confirm_intent: confirmed } : {}) }
+        const key = crypto.randomUUID()
+        pending.current = { signature, send: () => historyApi.suggestion(run.id, finding.id, data, key, draft?.edit_version) }
+      }
+      await pending.current!.send()
+      pending.current = null
+      await saved()
+    } catch (error) {
+      setError(apiError(error, 'The decision could not be saved. Retry or refresh to check its status.'))
+    } finally { setBusy(false) }
+  }
+  return <section aria-label="Review rewrite suggestion" className="mt-3 space-y-2 print:hidden">
+    {decision && <p role="status">Suggestion {decision.status}. {decision.draft_id && <Link className="underline" to={`/projects/${projectId}/revisions/${decision.draft_id}`}>Open draft and analyze</Link>}</p>}
+    {(!decision || decision.status === 'rejected') && <>
+      <label className="block">Proposed requirement<textarea aria-label="Proposed requirement" maxLength={12000} rows={4} value={text} disabled={busy} onChange={event => setText(event.target.value)} className="block w-full bg-[#141518] border border-[#51535c] rounded p-2 mt-1" /></label>
+      <label className="flex gap-2 items-start"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />I reviewed the intent, thresholds, conditions and exceptions. Apply only to a draft.</label>
+      <div className="flex flex-wrap gap-2"><Button disabled={busy || !confirmed || !text.trim()} onClick={() => submit(false)}>Apply to draft</Button><Button variant="outline" disabled={busy} onClick={() => submit(true)}>Reject suggestion</Button></div>
+    </>}
+    {error && <p role="alert">{error}</p>}
+  </section>
+}
+
+function FindingItem({ finding, review }: { finding: Finding; review?: React.ReactNode }) {
   const [expanded, setExpanded] = useState(true)
 
   return (
@@ -216,6 +259,9 @@ function FindingItem({ finding }: { finding: Finding }) {
             </div>
           )}
 
+          {finding.evidence && <p>Source evidence: {Array.isArray(finding.evidence) ? finding.evidence.join(' / ') : finding.evidence}</p>}
+          {finding.related_requirement && <p>Related requirement ({finding.related_requirement.source_ref || finding.related_requirement.id}): {finding.related_requirement.text}</p>}
+          {finding.rewrite_error && <p role="status">Rewrite checks did not finish ({finding.rewrite_error}). Review is required.</p>}
           {/* AI Revision Suggestion */}
           {finding.rewrite_suggestion && (
             <div>
@@ -231,7 +277,7 @@ function FindingItem({ finding }: { finding: Finding }) {
                         ? "text-[#68A86C] border-[#4E8752]/40 bg-[#4E8752]/10"
                         : "text-[#E06C6C] border-[#C04848]/40 bg-[#C04848]/10"
                     )}>
-                      {finding.rewrite_passed ? 'LEXICAL CHECKS PASSED · REVIEW REQUIRED' : 'REVIEW REQUIRED'}
+                      {finding.rewrite_passed ? 'CHECKS PASSED · REVIEW REQUIRED' : 'REVIEW REQUIRED'}
                     </span>
                   )}
                   {finding.rewrite_attempts !== undefined && finding.rewrite_attempts > 0 && (
@@ -246,6 +292,8 @@ function FindingItem({ finding }: { finding: Finding }) {
               <div className="p-2.5 rounded border border-[#303136] bg-[#141518] text-xs font-mono text-[#E7E7E9] whitespace-pre-wrap leading-relaxed">
                 {finding.rewrite_suggestion}
               </div>
+              {finding.rewrite_semantic_review && <p className="mt-2">Semantic review (advisory): {finding.rewrite_semantic_review.explanation} This does not prove equivalent intent.</p>}
+              {review}
               {finding.rewrite_checks && <ul className="mt-2 text-xs text-[#A0A1A8]">
                 {Object.entries(finding.rewrite_checks).map(([check, passed]) =>
                   <li key={check}>{passed ? 'Passed' : 'Needs review'}: {check.replace(/_/g, ' ')}</li>)}
@@ -283,7 +331,8 @@ export default function ReportPage() {
       const reviews = (snapshot?.reviews || []) as { id: number; trace_id?: number; status: string }[]
       const links = ((snapshot?.trace_links || []) as TraceLink[]).map(link => ({ ...link, status: reviews.find(review => review.trace_id === link.id)?.status || link.status }))
       return { live, runs: history.data.items, run, reviews,
-        aiUsage: snapshot?.ai_usage as { provider_calls: number; cache_hits: number; reported_tokens: number; unknown_usage_calls: number; reserved_unknown_tokens: number } | undefined,
+        suggestions: (snapshot?.suggestion_decisions || []) as SuggestionDecision[],
+        aiUsage: snapshot?.ai_usage as { provider_calls: number; cache_hits: number; reported_tokens: number; unknown_usage_calls: number; reserved_unknown_tokens: number; estimated_cost_microusd: number; reserved_unknown_cost_microusd: number; unpriced_calls: number } | undefined,
         project: { ...live, version: revision?.number || live.version, quality_score: snapshot?.score,
           analysis_mode: revision?.analysis_mode || live.analysis_mode,
           status: run ? ({ completed: 'done', failed: 'error', queued: 'analyzing', running: 'analyzing' }[run.status] || run.status) : live.status,
@@ -422,6 +471,10 @@ export default function ReportPage() {
       {project?.analysis_mode === 'ai' && report.data?.aiUsage && <section aria-label="AI usage" className="p-4 border border-[#51535c] rounded text-sm space-y-1">
         <p>AI usage: {report.data.aiUsage.provider_calls} provider calls, {report.data.aiUsage.cache_hits} cached responses, {report.data.aiUsage.reported_tokens} provider-reported tokens.</p>
         {report.data.aiUsage.unknown_usage_calls > 0 && <p>Usage is unknown for {report.data.aiUsage.unknown_usage_calls} calls. Their {report.data.aiUsage.reserved_unknown_tokens} reserved tokens remain charged against this run's budget; this is not measured usage or a cost estimate.</p>}
+      </section>}
+      {report.data?.aiUsage && project?.analysis_mode === 'ai' && <p className="text-sm">Configured-price estimate: ${((report.data.aiUsage.estimated_cost_microusd || 0) / 1000000).toFixed(6)}; unknown-usage reservation: ${((report.data.aiUsage.reserved_unknown_cost_microusd || 0) / 1000000).toFixed(6)}. {report.data.aiUsage.unpriced_calls || 0} calls have no price. These are not provider invoices.</p>}
+      {project?.analysis_mode === 'ai' && project.quality_score?.details?.ai_coverage && <section aria-label="AI review coverage" className="border border-[#51535c] rounded p-4 text-sm space-y-2">
+        {Object.entries(project.quality_score.details.ai_coverage).map(([name, coverage]) => <p key={name}>{name}: {coverage.reviewed} / {coverage.total} reviewed ({coverage.complete ? 'complete' : 'partial'}). {coverage.note}</p>)}
       </section>}
       {project?.status === 'partial' && <p role="status" className="p-4 border border-amber-400 rounded">Some inputs or requested checks could not be fully evaluated. Review the warnings below; no final grade is assigned.</p>}
       {project?.analysis_error && <p role="alert" className="p-4 border border-red-400 rounded">{project.analysis_error}</p>}
@@ -572,7 +625,7 @@ export default function ReportPage() {
           ) : (
             <div className="space-y-2">
               {filteredFindings.map(f => (
-                <FindingItem key={f.id} finding={f} />
+                <FindingItem key={`${report.data?.run?.id}:${f.id}`} finding={f} review={f.rewrite_suggestion && report.data?.run ? <SuggestionReview finding={f} projectId={projectId} run={report.data.run} decision={report.data.suggestions.find(item => item.finding_id === f.id)} saved={() => queryClient.invalidateQueries({ queryKey: ['project-report', projectId] })} /> : undefined} />
               ))}
             </div>
           )}

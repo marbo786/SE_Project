@@ -106,6 +106,7 @@ export const historyApi = {
   cancel: (runId: string) => api.post<RunSummary>(`/v1/runs/${encodeURIComponent(runId)}/cancel`),
   compare: (runId: string, previous: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/compare/${encodeURIComponent(previous)}`),
   decision: (runId: string, data: unknown) => api.post(`/v1/runs/${encodeURIComponent(runId)}/decisions`, data),
+  suggestion: (runId: string, findingId: number, data: unknown, key: string, version?: number) => api.post(`/v1/runs/${encodeURIComponent(runId)}/suggestions/${findingId}/decisions`, data, { headers: { 'Idempotency-Key': key, ...(version ? { 'If-Match': String(version) } : {}) } }),
   exportTrace: (runId: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/traceability.csv`, { responseType: 'blob' }),
   source: (pid: number, aid: number) => `${API_URL}/v1/projects/${pid}/artifacts/${aid}/source`,
 }

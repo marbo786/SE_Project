@@ -15,7 +15,7 @@ from ..models.user import User
 from ..models.history import (ProjectRevision, AnalysisRun, RunFinding, RunTraceLink,
     RunQualityScore, Requirement, UMLElement, ReviewDecision, AuditEvent, IdempotencyRecord)
 
-VERSIONS = {"parser": "2", "rules": "2", "rubric": "2", "report": "1", "ai": "3"}
+VERSIONS = {"parser": "2", "rules": "2", "rubric": "2", "report": "1", "ai": "4"}
 ACTIVE = {"queued", "running"}
 TERMINAL = {"completed", "partial", "failed", "cancelled"}
 
@@ -222,7 +222,8 @@ def start_run(db, project, revision, actor_id, *, idempotency_key=None, expected
     except OSError:
         raise HTTPException(409, "A source file is unavailable. Restore it from backup or upload a replacement in a new draft.")
     snapshot = {"artifacts": manifest, "canonical": deepcopy(revision.canonical_inputs),
-        "profile": revision.analysis_profile, "mode": revision.analysis_mode, "rules_config": deepcopy(get_yaml_config())}
+        "profile": revision.analysis_profile, "mode": revision.analysis_mode, "rules_config": deepcopy(get_yaml_config()),
+        "ai_cost_policy": {"budget": get_settings().LLM_RUN_COST_BUDGET_MICROUSD, "prices": deepcopy(get_settings().LLM_PRICING)}}
     input_hash = digest({"artifacts": sorted([(a['lineage_key'], a['sha256'], a['type']) for a in manifest]),
         "edits": (revision.canonical_inputs or {}).get('edits', []), "profile": revision.analysis_profile,
         "mode": revision.analysis_mode, "rules_config": snapshot['rules_config']})

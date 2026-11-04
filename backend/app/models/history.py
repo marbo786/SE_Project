@@ -171,3 +171,15 @@ class IdempotencyRecord(Base):
     response = Column(JSON, nullable=False)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     __table_args__ = (UniqueConstraint("actor_id", "scope", "key", name="uq_idempotency_request"),)
+
+
+class SuggestionDecision(Base):
+    __tablename__ = "suggestion_decisions"
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(36), ForeignKey("analysis_runs.id"), nullable=False, index=True)
+    finding_id = Column(Integer, ForeignKey("run_findings.id"), nullable=False)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(16), nullable=False)
+    draft_id = Column(Integer, ForeignKey("project_revisions.id"))
+    replacement_text = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)

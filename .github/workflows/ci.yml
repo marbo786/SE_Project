@@ -32,6 +32,8 @@ jobs:
       run: |
         cd backend
         python -m pytest tests/ -v
+    - name: Offline AI contract benchmark
+      run: python backend/scripts/evaluate_ai.py
     - name: Audit Python dependencies
       run: pip-audit
     - name: Compose integration smoke
