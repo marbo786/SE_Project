@@ -10,7 +10,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          "flex h-8 w-full rounded border border-[#303136] bg-[#17181B] px-2.5 py-1.5 text-xs text-[#E7E7E9] placeholder:text-[#777981] focus:outline-none focus:border-[#7895B5] focus:ring-1 focus:ring-[#7895B5] disabled:cursor-not-allowed disabled:opacity-40 transition-none font-sans",
+          "flex h-8 w-full rounded border border-border bg-secondary px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-40 transition-none font-sans",
           className
         )}
         ref={ref}
@@ -29,8 +29,8 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
   ({ containerClassName, className, ...props }, ref) => {
     return (
       <div className={cn("relative", containerClassName)}>
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#777981]" />
-        <Input ref={ref} className={cn("pl-8", className)} {...props} />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <Input aria-label={props['aria-label'] || props.placeholder || 'Search'} ref={ref} className={cn("pl-8", className)} {...props} />
       </div>
     )
   }

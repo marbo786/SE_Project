@@ -12,6 +12,9 @@ export default {
         mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       colors: {
+        success: "hsl(var(--success) / <alpha-value>)",
+        danger: "hsl(var(--danger) / <alpha-value>)",
+        warning: "hsl(var(--warning) / <alpha-value>)",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

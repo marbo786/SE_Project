@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
 import DashboardPage from '@/pages/DashboardPage'
@@ -12,10 +12,11 @@ import AccountPage from '@/pages/AccountPage'
 import DraftPage from '@/pages/DraftPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
   const { isAuthenticated, loading, error, refresh } = useAuth()
   if (loading) return <main className="p-8" role="status">Checking your session…</main>
   if (error) return <main className="p-8" role="alert">{error} <button onClick={refresh}>Try again</button></main>
-  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (!isAuthenticated) return <Navigate to="/login" state={{ returnTo: location.pathname + location.search, expired: true }} replace />
   return <>{children}</>
 }
 

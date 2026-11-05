@@ -1,206 +1,59 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  FileCode2,
-  LogOut,
-  Plus,
-  ChevronLeft,
-  ChevronRight,
-  User,
-  Menu,
-  X,
-  Terminal,
-} from 'lucide-react'
-import { Button } from './ui/button'
-import { cn } from '@/lib/utils'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import * as Dialog from '@radix-ui/react-dialog'
+import { Menu, X, FileCheck2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { apiError } from '@/lib/api'
 
+function preference(key: string, fallback: string) {
+  try { return localStorage.getItem(key) || fallback } catch { return fallback }
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate()
-  const location = useLocation()
   const { user, logout } = useAuth()
-  const [logoutError, setLogoutError] = useState('')
-  const [collapsed, setCollapsed] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
-
+  const location = useLocation(), navigate = useNavigate()
+  const [open, setOpen] = useState(false), [error, setError] = useState('')
+  const [theme, setTheme] = useState(() => preference('srs-theme', 'dark'))
+  const [density, setDensity] = useState(() => preference('srs-density', 'comfortable'))
+  useEffect(() => { setOpen(false) }, [location.pathname])
   useEffect(() => {
-    setMobileOpen(false)
-  }, [location.pathname])
-
-  const handleLogout = async () => {
-    try { await logout(); navigate('/login') }
-    catch (error) { setLogoutError(apiError(error, 'Sign out failed. Please try again.')) }
-  }
-
-  const navLinks = [
-    { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/projects', icon: FileCode2, label: 'Specifications' },
-    { to: '/account', icon: User, label: 'Account' },
-  ]
-
-  const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/'
-    return location.pathname.startsWith(path)
-  }
-
-  const sidebarContent = (
-    <div className="flex flex-col h-full bg-[#17181B] text-[#E7E7E9]">
-      {/* Brand Header */}
-      <div className={cn(
-        "h-12 flex items-center border-b border-[#303136] px-3.5 shrink-0 select-none",
-        collapsed ? "justify-center px-2" : "justify-between"
-      )}>
-        <Link to="/" className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center justify-center w-5 h-5 rounded-sm bg-[#1D1E22] border border-[#303136] text-[#7895B5] shrink-0">
-            <Terminal className="h-3 w-3" />
-          </div>
-          {!collapsed && (
-            <div className="flex items-center gap-1.5 truncate">
-              <span className="font-mono text-xs font-semibold tracking-wider text-[#E7E7E9]">
-                SRS_REVIEWER
-              </span>
-              <span className="text-[10px] font-mono text-[#777981] border border-[#303136] rounded-sm px-1 py-0.2">
-                SYS
-              </span>
-            </div>
-          )}
-        </Link>
-      </div>
-
-      {/* Navigation */}
-      <div className="flex-1 px-2 py-3 space-y-4 overflow-y-auto scrollbar-technical">
-        <div>
-          {!collapsed && (
-            <p className="px-2 mb-1.5 text-[10px] font-mono font-medium uppercase tracking-wider text-[#777981]">
-              Navigation
-            </p>
-          )}
-          <nav className="space-y-0.5">
-            {navLinks.map(link => {
-              const active = isActive(link.to)
-              return (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  title={collapsed ? link.label : undefined}
-                  className={cn(
-                    "flex items-center gap-2.5 px-2.5 py-1.5 text-xs font-medium rounded transition-none group",
-                    collapsed && "justify-center px-1.5",
-                    active
-                      ? "bg-[#1D1E22] text-[#E7E7E9] border-l-2 border-l-[#7895B5] font-semibold"
-                      : "text-[#A1A1AA] hover:bg-[#1D1E22]/60 hover:text-[#E7E7E9]"
-                  )}
-                >
-                  <link.icon className={cn("h-3.5 w-3.5 shrink-0", active ? "text-[#7895B5]" : "text-[#777981] group-hover:text-[#A1A1AA]")} />
-                  {!collapsed && <span className="truncate">{link.label}</span>}
-                </Link>
-              )
-            })}
-          </nav>
-        </div>
-
-        <div>
-          {!collapsed && (
-            <p className="px-2 mb-1.5 text-[10px] font-mono font-medium uppercase tracking-wider text-[#777981]">
-              Actions
-            </p>
-          )}
-          <Link to="/projects/new" title={collapsed ? "New Analysis" : undefined}>
-            <button
-              className={cn(
-                "w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded border border-[#303136] bg-[#111214] text-[#A1A1AA] hover:text-[#E7E7E9] hover:border-[#7895B5]/50 transition-none",
-                collapsed && "justify-center px-1.5"
-              )}
-            >
-              <Plus className="h-3.5 w-3.5 text-[#7895B5] shrink-0" />
-              {!collapsed && <span className="font-mono text-[11px]">New Specification</span>}
-            </button>
-          </Link>
-        </div>
-      </div>
-
-      {/* User Section & Collapser */}
-      <div className="border-t border-[#303136] p-2 shrink-0 bg-[#141518]">
-        {user && (
-          <div className={cn(
-            "flex items-center gap-2 mb-2 p-1.5 rounded bg-[#1D1E22]/70 border border-[#303136]/50",
-            collapsed && "justify-center p-1"
-          )}>
-            <div className="flex items-center justify-center w-6 h-6 rounded-sm bg-[#17181B] border border-[#303136] text-[10px] font-mono text-[#7895B5] shrink-0 font-medium">
-              {user.name?.charAt(0)?.toUpperCase() || <User className="h-3 w-3" />}
-            </div>
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-[#E7E7E9] truncate leading-tight">{user.name}</p>
-                <p className="text-[10px] font-mono text-[#777981] truncate">{user.email}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleLogout}
-            title={collapsed ? "Logout" : undefined}
-            className={cn(
-              "flex items-center gap-2 flex-1 px-2 py-1 text-xs text-[#777981] hover:text-[#E06C6C] hover:bg-[#1D1E22] rounded transition-none",
-              collapsed && "justify-center"
-            )}
-          >
-            <LogOut className="h-3.5 w-3.5 shrink-0" />
-            {!collapsed && <span className="text-[11px]">Disconnect</span>}
-          </button>
-
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="hidden lg:flex items-center justify-center h-6 w-6 rounded text-[#777981] hover:text-[#E7E7E9] hover:bg-[#1D1E22] transition-none"
-          >
-            {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-      </div>
+    document.documentElement.dataset.theme = theme
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.documentElement.dataset.density = density
+    try { localStorage.setItem('srs-theme', theme); localStorage.setItem('srs-density', density) } catch { /* Preferences work without storage. */ }
+  }, [theme, density])
+  const navigation = <div className="flex flex-col h-full p-5 gap-6 bg-secondary">
+    <Link to="/" className="flex items-center gap-2 font-semibold text-lg"><FileCheck2 aria-hidden="true" /> SRS Reviewer</Link>
+    <nav aria-label="Main navigation" className="grid gap-2">
+      {[['/', 'Dashboard'], ['/projects', 'Projects'], ['/projects/new', 'New project'], ['/account', 'Account']].map(([to, label]) => <Link key={to} to={to}
+        aria-current={location.pathname === to ? 'page' : undefined}
+        className="rounded px-3 py-3 hover:bg-accent aria-[current=page]:bg-accent aria-[current=page]:font-semibold">{label}</Link>)}
+    </nav>
+    <div className="mt-auto space-y-4">
+      <label className="block text-sm">Appearance<select className="block w-full border rounded p-2 mt-1 bg-background" value={theme} onChange={e => setTheme(e.target.value)}><option value="dark">Dark</option><option value="light">Light</option></select></label>
+      <label className="block text-sm">Spacing<select className="block w-full border rounded p-2 mt-1 bg-background" value={density} onChange={e => setDensity(e.target.value)}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+      <p className="text-sm break-words text-muted-foreground">{user?.name}<br />{user?.email}</p>
+      <button className="border rounded px-3 py-2 w-full" onClick={async () => { try { await logout(); navigate('/login') } catch (err) { setError(apiError(err, 'Sign out failed. Try again.')) } }}>Sign out</button>
     </div>
-  )
-
-  return (
-    <div className="min-h-screen bg-[#111214] text-[#E7E7E9] flex font-sans">
-      {/* Mobile Menu Toggle Button */}
-      <button
-        className="lg:hidden fixed top-2.5 left-2.5 z-50 p-1.5 rounded bg-[#17181B] border border-[#303136] text-[#E7E7E9]"
-        onClick={() => setMobileOpen(!mobileOpen)}
-        aria-label="Toggle navigation"
-      >
-        {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-      </button>
-
-      {/* Mobile Overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/70 z-30"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "fixed lg:sticky top-0 left-0 z-40 h-screen border-r border-[#303136] transition-none shrink-0",
-          collapsed ? "w-14" : "w-52",
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        )}
-      >
-        {sidebarContent}
-      </aside>
-
-      {/* Main Content Viewport */}
-      <main className="flex-1 min-w-0 overflow-auto bg-[#111214]">
-        <div className="p-5 lg:p-6 max-w-6xl mx-auto">
-          {logoutError && <p role="alert" className="p-3 text-red-300">{logoutError}</p>}{children}
-        </div>
-      </main>
-    </div>
-  )
+  </div>
+  return <div className="min-h-screen bg-background text-foreground lg:flex">
+    <a href="#main-content" className="skip-link">Skip to content</a>
+    <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between border-b bg-secondary px-4 h-16 print:hidden">
+      <Link to="/" className="font-semibold">SRS Reviewer</Link>
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Trigger asChild><button aria-label="Open navigation" className="p-3"><Menu /></button></Dialog.Trigger>
+        <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/60 z-40" /><Dialog.Content className="fixed inset-y-0 left-0 w-80 max-w-[90vw] z-50 bg-secondary overflow-auto">
+          <Dialog.Title className="sr-only">Navigation</Dialog.Title><Dialog.Description className="sr-only">Projects and workspace preferences</Dialog.Description>
+          <Dialog.Close asChild><button aria-label="Close navigation" className="absolute right-2 top-2 p-3"><X /></button></Dialog.Close>
+          <div className="pt-10 h-full">{navigation}</div>
+        </Dialog.Content></Dialog.Portal>
+      </Dialog.Root>
+    </header>
+    <aside className="hidden lg:block sticky top-0 h-screen w-60 shrink-0 border-r print:hidden">{navigation}</aside>
+    <main id="main-content" tabIndex={-1} className="flex-1 min-w-0">
+      <div className="workspace-content p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+        {error && <p role="alert">{error}</p>}{children}
+      </div>
+    </main>
+  </div>
 }

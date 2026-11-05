@@ -52,6 +52,7 @@ export default function NewProjectPage() {
   const [isDragging, setIsDragging] = useState(false)
 
   // Status
+  const [progress, setProgress] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const savedProject = useRef<{ id: number; current_revision_id: number } | null>(null)
@@ -112,6 +113,7 @@ export default function NewProjectPage() {
       return
     }
 
+    if ([srsFile, ...umlFiles.map(item => item.file)].some(file => file.size > 10 * 1024 * 1024)) { setError('Each file must be smaller than 10 MB.'); return }
     setLoading(true)
     setError('')
 
@@ -127,7 +129,7 @@ export default function NewProjectPage() {
         if (!attempts.current.has(input.file)) attempts.current.set(input.file, { key: crypto.randomUUID(), revision,
           replaceId: input.type === 'srs' ? revision.artifacts.find(a => a.type === 'srs')?.id : undefined })
         const attempt = attempts.current.get(input.file)!
-        const response = await historyApi.upload(project.id, attempt.revision, input.type, input.file, attempt.key, attempt.replaceId)
+        const response = await historyApi.upload(project.id, attempt.revision, input.type, input.file, attempt.key, attempt.replaceId, percent => setProgress(`${input.file.name}: ${percent === 100 ? 'validating source' : `uploading ${percent}%`}`))
         uploaded.current.add(input.file)
         revision = response.data.revision
       }
@@ -139,7 +141,7 @@ export default function NewProjectPage() {
   }
 
   const steps = [
-    { num: 1, label: 'Scope & Metadata' },
+    { num: 1, label: 'Project details' },
     { num: 2, label: 'SRS Document' },
     { num: 3, label: 'Architecture UML' },
     { num: 4, label: 'Save draft' },
@@ -147,6 +149,7 @@ export default function NewProjectPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {loading && <p role="status">{progress || 'Saving project…'}</p>}
       {/* Navigation Breadcrumb */}
       <Breadcrumbs
         items={[
@@ -161,7 +164,7 @@ export default function NewProjectPage() {
       />
 
       {/* Step Navigation Bar */}
-      <div className="flex border border-[#303136] rounded bg-[#17181B] text-xs font-mono overflow-hidden">
+      <div className="flex border border-border rounded bg-secondary text-xs font-mono overflow-hidden">
         {steps.map(step => {
           const active = currentStep === step.num
           const complete = currentStep > step.num
@@ -170,15 +173,15 @@ export default function NewProjectPage() {
               key={step.num}
               onClick={() => setCurrentStep(step.num)}
               className={cn(
-                "flex-1 py-2 px-3 text-left border-r border-[#303136] last:border-r-0 flex items-center gap-2 transition-none",
-                active && "bg-[#1D1E22] text-[#E7E7E9] font-medium border-b-2 border-b-[#7895B5]",
-                complete && "text-[#4E8752]",
-                !active && !complete && "text-[#777981] hover:text-[#A1A1AA]"
+                "flex-1 py-2 px-3 text-left border-r border-border last:border-r-0 flex items-center gap-2 transition-none",
+                active && "bg-card text-foreground font-medium border-b-2 border-b-primary",
+                complete && "text-success",
+                !active && !complete && "text-muted-foreground hover:text-muted-foreground"
               )}
             >
               <span className={cn(
-                "w-4 h-4 rounded-sm flex items-center justify-center text-[10px]",
-                active ? "bg-[#7895B5] text-[#111214] font-bold" : complete ? "bg-[#4E8752]/20 text-[#68A86C]" : "bg-[#24252A] text-[#777981]"
+                "w-4 h-4 rounded-sm flex items-center justify-center text-xs",
+                active ? "bg-primary text-background font-bold" : complete ? "bg-success/20 text-success" : "bg-accent text-muted-foreground"
               )}>
                 {complete ? '✓' : step.num}
               </span>
@@ -190,17 +193,17 @@ export default function NewProjectPage() {
 
       {/* Error alert banner */}
       {error && (
-        <div className="p-3 rounded border border-[#C04848]/40 bg-[#C04848]/10 text-xs text-[#E06C6C] flex items-center gap-2 font-mono">
-          <AlertCircle className="h-4 w-4 shrink-0 text-[#E06C6C]" />
+        <div className="p-3 rounded border border-danger/40 bg-danger/10 text-xs text-danger flex items-center gap-2 font-mono">
+          <AlertCircle className="h-4 w-4 shrink-0 text-danger" />
           <span>{error}</span>
         </div>
       )}
 
       {/* STEP 1: Project Details */}
       {currentStep === 1 && (
-        <div className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-4">
-          <div className="border-b border-[#303136] pb-2">
-            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#A1A1AA]">
+        <div className="rounded border border-border bg-card p-4 space-y-4">
+          <div className="border-b border-border pb-2">
+            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground">
               Step 1: Specification Scope & Identification
             </h3>
           </div>
@@ -208,16 +211,16 @@ export default function NewProjectPage() {
           <div className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="analysis-profile">What should this review cover?</Label>
-              <select id="analysis-profile" value={profile} onChange={event => setProfile(event.target.value as typeof profile)} className="block w-full rounded border border-[#303136] bg-[#17181B] p-3 text-sm">
+              <select id="analysis-profile" value={profile} onChange={event => setProfile(event.target.value as typeof profile)} className="block w-full rounded border border-border bg-secondary p-3 text-sm">
                 <option value="srs_only">Requirements only</option>
                 <option value="architecture">Requirements and architecture (all three UML diagrams)</option>
               </select>
-              <p className="text-sm text-[#A1A1AA]">The selected scope determines which checks and scores apply. Requirements-only reviews do not grade UML or traceability.</p>
+              <p className="text-sm text-muted-foreground">The selected scope determines which checks and scores apply. Requirements-only reviews do not grade UML or traceability.</p>
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={useAI} onChange={event => setUseAI(event.target.checked)} className="mt-1" />Include AI suggestions using the configured provider. Deterministic checks work offline.</label>
             </div>
             <div>
-              <Label htmlFor="spec-name" className="text-xs text-[#E7E7E9] mb-1.5 block">
-                Specification Name <span className="text-[#C04848]">*</span>
+              <Label htmlFor="spec-name" className="text-xs text-foreground mb-1.5 block">
+                Specification Name <span className="text-danger">*</span>
               </Label>
               <Input
                 id="spec-name"
@@ -226,13 +229,13 @@ export default function NewProjectPage() {
                 onChange={e => setName(e.target.value)}
                 autoFocus
               />
-              <p className="text-[11px] text-[#777981] mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Unique identifier for tracking requirement versions over time.
               </p>
             </div>
 
             <div>
-              <Label htmlFor="spec-desc" className="text-xs text-[#E7E7E9] mb-1.5 block">
+              <Label htmlFor="spec-desc" className="text-xs text-foreground mb-1.5 block">
                 Description / Scope (Optional)
               </Label>
               <Textarea
@@ -265,10 +268,10 @@ export default function NewProjectPage() {
 
       {/* STEP 2: Upload SRS Document */}
       {currentStep === 2 && (
-        <div className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-4">
-          <div className="border-b border-[#303136] pb-2">
-            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#A1A1AA]">
-              Step 2: Requirements Document Ingestion
+        <div className="rounded border border-border bg-card p-4 space-y-4">
+          <div className="border-b border-border pb-2">
+            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+              Step 2: Requirements document
             </h3>
           </div>
 
@@ -276,12 +279,16 @@ export default function NewProjectPage() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            role="button"
+            tabIndex={0}
+            aria-label="Choose SRS document"
+            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); srsInputRef.current?.click() } }}
             onClick={() => srsInputRef.current?.click()}
             className={cn(
               "border border-dashed rounded p-6 text-center cursor-pointer transition-none",
               isDragging
-                ? "border-[#7895B5] bg-[#7895B5]/10"
-                : "border-[#303136] bg-[#17181B] hover:border-[#7895B5]/50 hover:bg-[#1D1E22]"
+                ? "border-primary bg-primary/10"
+                : "border-border bg-secondary hover:border-primary/50 hover:bg-card"
             )}
           >
             <input
@@ -296,29 +303,30 @@ export default function NewProjectPage() {
                 }
               }}
             />
-            <Upload className="h-6 w-6 mx-auto mb-2 text-[#7895B5]" />
-            <p className="text-xs font-medium text-[#E7E7E9] mb-1">
+            <Upload className="h-6 w-6 mx-auto mb-2 text-primary" />
+            <p className="text-xs font-medium text-foreground mb-1">
               Select or drop specification document
             </p>
-            <p className="text-[11px] font-mono text-[#777981]">
+            <p className="text-xs font-mono text-muted-foreground">
               Supported file formats: .PDF, .DOCX
             </p>
           </div>
 
           {/* Selected File Details */}
           {srsFile && (
-            <div className="flex items-center justify-between p-2.5 rounded border border-[#303136] bg-[#17181B]">
+            <div className="flex items-center justify-between p-2.5 rounded border border-border bg-secondary">
               <div className="flex items-center gap-2 min-w-0">
-                <FileText className="h-4 w-4 text-[#7895B5] shrink-0" />
+                <FileText className="h-4 w-4 text-primary shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-xs font-mono font-medium text-[#E7E7E9] truncate">{srsFile.name}</p>
-                  <p className="text-[10px] font-mono text-[#777981]">{formatFileSize(srsFile.size)}</p>
+                  <p className="text-xs font-mono font-medium text-foreground truncate">{srsFile.name}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{formatFileSize(srsFile.size)}</p>
                 </div>
               </div>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-1.5 text-xs text-[#777981] hover:text-[#E06C6C]"
+                className="h-6 px-1.5 text-xs text-muted-foreground hover:text-danger"
+                aria-label="Remove SRS file"
                 onClick={() => setSrsFile(null)}
               >
                 <X className="h-3.5 w-3.5" />
@@ -350,20 +358,20 @@ export default function NewProjectPage() {
 
       {/* STEP 3: Add UML Diagrams */}
       {currentStep === 3 && (
-        <div className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-4">
-          <div className="border-b border-[#303136] pb-2">
-            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#A1A1AA]">
+        <div className="rounded border border-border bg-card p-4 space-y-4">
+          <div className="border-b border-border pb-2">
+            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground">
               Step 3: Architecture Diagram Models (Optional)
             </h3>
-            <p className="text-[11px] text-[#777981] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Attach PlantUML diagram models (.puml, .txt) to generate requirement-to-architecture traceability matrices.
             </p>
           </div>
 
-          <div className="p-3 rounded border border-[#303136] bg-[#17181B] space-y-3">
+          <div className="p-3 rounded border border-border bg-secondary space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
-                <Label className="text-[11px] text-[#777981] mb-1 block">Diagram Type</Label>
+                <Label className="text-xs text-muted-foreground mb-1 block">Diagram Type</Label>
                 <Select value={umlType} onValueChange={setUmlType}>
                   <SelectTrigger>
                     <SelectValue />
@@ -377,13 +385,14 @@ export default function NewProjectPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <Label className="text-[11px] text-[#777981] mb-1 block">PlantUML Model File</Label>
+                <Label className="text-xs text-muted-foreground mb-1 block">PlantUML Model File</Label>
                 <div className="flex gap-2">
                   <input
+                    aria-label="PlantUML file"
                     ref={umlInputRef}
                     type="file"
                     accept=".txt,.puml"
-                    className="text-xs text-[#E7E7E9] file:mr-2 file:py-1 file:px-2 file:rounded file:border file:border-[#303136] file:bg-[#1D1E22] file:text-[11px] file:text-[#E7E7E9] file:cursor-pointer flex-1"
+                    className="text-xs text-foreground file:mr-2 file:py-1 file:px-2 file:rounded file:border file:border-border file:bg-card file:text-xs file:text-foreground file:cursor-pointer flex-1"
                     onChange={e => setUmlFile(e.target.files?.[0] || null)}
                   />
                   <Button
@@ -403,24 +412,25 @@ export default function NewProjectPage() {
           {/* Attached Diagrams List */}
           {umlFiles.length > 0 ? (
             <div className="space-y-1.5">
-              <p className="text-[11px] font-mono uppercase text-[#777981]">
+              <p className="text-xs font-mono uppercase text-muted-foreground">
                 Attached Architecture Models ({umlFiles.length})
               </p>
-              <div className="divide-y divide-[#303136] border border-[#303136] rounded bg-[#17181B] overflow-hidden">
+              <div className="divide-y divide-border border border-border rounded bg-secondary overflow-hidden">
                 {umlFiles.map((item, idx) => (
                   <div key={idx} className="p-2 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 min-w-0 font-mono">
-                      <FileCode className="h-3.5 w-3.5 text-[#7895B5] shrink-0" />
-                      <Badge variant="outline" className="text-[10px] uppercase">
+                      <FileCode className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <Badge variant="outline" className="text-xs uppercase">
                         {item.type}
                       </Badge>
-                      <span className="text-[#E7E7E9] truncate">{item.file.name}</span>
-                      <span className="text-[10px] text-[#777981]">({formatFileSize(item.file.size)})</span>
+                      <span className="text-foreground truncate">{item.file.name}</span>
+                      <span className="text-xs text-muted-foreground">({formatFileSize(item.file.size)})</span>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-5 px-1 text-[#777981] hover:text-[#E06C6C]"
+                      className="h-5 px-1 text-muted-foreground hover:text-danger"
+                      aria-label={`Remove ${item.file.name}`}
                       onClick={() => setUmlFiles(umlFiles.filter((_, i) => i !== idx))}
                     >
                       <X className="h-3 w-3" />
@@ -430,7 +440,7 @@ export default function NewProjectPage() {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-[#777981] italic">
+            <p className="text-xs text-muted-foreground italic">
               No architecture models attached. You may continue without UML models.
             </p>
           )}
@@ -441,7 +451,7 @@ export default function NewProjectPage() {
               Back
             </Button>
             <Button onClick={() => setCurrentStep(4)}>
-              Review Ingestion Parameters
+              Review files and scope
               <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
             </Button>
           </div>
@@ -450,36 +460,36 @@ export default function NewProjectPage() {
 
       {/* STEP 4: Review and Execute Ingestion */}
       {currentStep === 4 && (
-        <div className="rounded border border-[#303136] bg-[#1D1E22] p-4 space-y-4">
-          <div className="border-b border-[#303136] pb-2">
-            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#A1A1AA]">
-              Step 4: Inspection Parameters Verification
+        <div className="rounded border border-border bg-card p-4 space-y-4">
+          <div className="border-b border-border pb-2">
+            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+              Step 4: Confirm files and scope
             </h3>
           </div>
 
-          <div className="divide-y divide-[#303136] border border-[#303136] rounded bg-[#17181B] text-xs font-mono">
+          <div className="divide-y divide-border border border-border rounded bg-secondary text-xs font-mono">
             <div className="p-3 flex items-center justify-between">
-              <span className="text-[#777981]">SPECIFICATION IDENTIFIER</span>
-              <span className="text-[#E7E7E9] font-medium">{name}</span>
+              <span className="text-muted-foreground">SPECIFICATION IDENTIFIER</span>
+              <span className="text-foreground font-medium">{name}</span>
             </div>
 
             {description && (
               <div className="p-3 flex items-start justify-between">
-                <span className="text-[#777981]">SCOPE / DESCRIPTION</span>
-                <span className="text-[#E7E7E9] max-w-sm text-right font-sans text-xs">{description}</span>
+                <span className="text-muted-foreground">SCOPE / DESCRIPTION</span>
+                <span className="text-foreground max-w-sm text-right font-sans text-xs">{description}</span>
               </div>
             )}
 
             <div className="p-3 flex items-center justify-between">
-              <span className="text-[#777981]">SRS DOCUMENT</span>
-              <span className="text-[#68A86C]">
+              <span className="text-muted-foreground">SRS DOCUMENT</span>
+              <span className="text-success">
                 {srsFile ? `${srsFile.name} (${formatFileSize(srsFile.size)})` : 'None'}
               </span>
             </div>
 
             <div className="p-3 flex items-center justify-between">
-              <span className="text-[#777981]">ARCHITECTURE MODELS</span>
-              <span className="text-[#E7E7E9]">
+              <span className="text-muted-foreground">ARCHITECTURE MODELS</span>
+              <span className="text-foreground">
                 {umlFiles.length > 0 ? `${umlFiles.length} file(s) attached` : 'None attached'}
               </span>
             </div>

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import axios from 'axios'
+import type { ProjectCreate, ProjectRename, ManualTrace, DecisionCreate, RevisionUpdate, RequirementUpdate } from './generated-api'
 
 export const API_URL = import.meta.env.VITE_API_URL || '/api'
 
@@ -15,7 +16,10 @@ api.interceptors.request.use(config => {
   return config
 })
 
-api.interceptors.response.use(response => response, error => {
+api.interceptors.response.use(response => response, async error => {
+  if (error.response?.data instanceof Blob && error.response.data.type.includes('json')) {
+    try { error.response.data = JSON.parse(await error.response.data.text()) } catch { /* Keep the safe fallback message. */ }
+  }
   if (error.response?.status === 401 && !['/auth/login', '/auth/register'].includes(error.config?.url)) {
     window.dispatchEvent(new Event('session-expired'))
   }
@@ -41,8 +45,8 @@ export const authApi = {
 }
 
 export const projectsApi = {
-  list: () => api.get('/projects/'),
-  get: (id: number) => api.get(`/projects/${id}`),
+  list: (signal?: AbortSignal) => api.get('/projects/', { signal }),
+  get: (id: number, signal?: AbortSignal) => api.get(`/projects/${id}`, { signal }),
   create: (data: { name: string; description?: string; analysis_profile?: 'srs_only' | 'architecture'; analysis_mode?: 'deterministic' | 'ai' }) => api.post('/projects/', data),
   extraction: (id: number) => api.get(`/projects/${id}/extraction`),
   uploadSRS: (id: number, file: File) => {
@@ -72,40 +76,39 @@ export const traceabilityApi = {
 }
 
 export const dashboardApi = {
-  getStats: () => api.get('/dashboard/stats')
+  getStats: (signal?: AbortSignal) => api.get('/dashboard/stats', { signal })
 }
 
-export interface Revision {
-  id: number; project_id: number; number: number; parent_id: number | null; state: 'draft' | 'sealed'; edit_version: number
-  analysis_profile: 'srs_only' | 'architecture'; analysis_mode: 'deterministic' | 'ai'; extraction_confirmed: boolean
-  artifacts: { id: number; type: string; filename: string; sha256: string | null; size_bytes: number | null }[]
-}
-export interface RunSummary {
-  id: string; project_id: number; revision_id: number; status: string; stage: string; created_at: string; error_message?: string; has_report: boolean
-  attempt_count: number; cancel_requested: boolean
-}
+export type { RevisionOut as Revision, RunOut as RunSummary } from './generated-api'
+import type { RevisionOut as Revision, RunOut as RunSummary } from './generated-api'
 export const historyApi = {
-  create: (data: unknown, key: string) => api.post('/v1/projects', data, { headers: { 'Idempotency-Key': key } }),
-  revision: (pid: number, rid: number) => api.get<Revision>(`/v1/projects/${pid}/revisions/${rid}`),
+  rename: (pid: number, data: ProjectRename) => api.patch(`/v1/projects/${pid}`, data),
+  lifecycle: (pid: number, action: 'archive' | 'restore') => api.post(`/v1/projects/${pid}/lifecycle`, { action }),
+  archived: () => api.get('/v1/projects?archived=true&limit=100'),
+  revisions: (pid: number) => api.get<{ items: Revision[]; total: number }>(`/v1/projects/${pid}/revisions?limit=100`),
+  endpoints: (runId: string) => api.get<{ type: string; id: string; label: string }[]>(`/v1/runs/${runId}/trace-endpoints`),
+  manualTrace: (runId: string, data: ManualTrace) => api.post(`/v1/runs/${runId}/manual-traces`, data),
+  create: (data: ProjectCreate, key: string) => api.post('/v1/projects', data, { headers: { 'Idempotency-Key': key } }),
+  revision: (pid: number, rid: number, signal?: AbortSignal) => api.get<Revision>(`/v1/projects/${pid}/revisions/${rid}`, { signal }),
   draft: (pid: number, parentId?: number) => api.post<Revision>(`/v1/projects/${pid}/drafts`, { parent_revision_id: parentId }),
-  edit: (pid: number, revision: Revision, data: unknown) => api.patch<Revision>(`/v1/projects/${pid}/revisions/${revision.id}`, data, { headers: { 'If-Match': revision.edit_version } }),
-  upload: (pid: number, revision: Revision, kind: string, file: File, key: string, replaceId?: number) => {
+  edit: (pid: number, revision: Revision, data: RevisionUpdate) => api.patch<Revision>(`/v1/projects/${pid}/revisions/${revision.id}`, data, { headers: { 'If-Match': revision.edit_version } }),
+  upload: (pid: number, revision: Revision, kind: string, file: File, key: string, replaceId?: number, progress?: (percent: number) => void) => {
     const data = new FormData(); data.append('kind', kind); data.append('file', file)
     if (replaceId) data.append('replace_artifact_id', String(replaceId))
     return api.post<{ artifact_id: number; revision: Revision }>(`/v1/projects/${pid}/revisions/${revision.id}/artifacts`, data,
-      { headers: { 'If-Match': revision.edit_version, 'Idempotency-Key': key }, timeout: 90000 })
+      { headers: { 'If-Match': revision.edit_version, 'Idempotency-Key': key }, timeout: 90000, onUploadProgress: event => progress?.(event.total ? Math.round(event.loaded / event.total * 100) : 0) })
   },
   remove: (pid: number, revision: Revision, aid: number) => api.delete(`/v1/projects/${pid}/revisions/${revision.id}/artifacts/${aid}`, { headers: { 'If-Match': revision.edit_version } }),
   extract: (pid: number, revision: Revision) => api.post(`/v1/projects/${pid}/revisions/${revision.id}/extraction`, {}, { headers: { 'If-Match': revision.edit_version }, timeout: 120000 }),
   extraction: (pid: number, rid: number) => api.get(`/v1/projects/${pid}/revisions/${rid}/extraction`),
-  correct: (pid: number, revision: Revision, element: string, data: unknown) => api.patch(`/v1/projects/${pid}/revisions/${revision.id}/requirements/${encodeURIComponent(element)}`, data, { headers: { 'If-Match': revision.edit_version } }),
+  correct: (pid: number, revision: Revision, element: string, data: RequirementUpdate) => api.patch(`/v1/projects/${pid}/revisions/${revision.id}/requirements/${encodeURIComponent(element)}`, data, { headers: { 'If-Match': revision.edit_version } }),
   start: (pid: number, revision: Revision, key: string) => api.post<RunSummary>(`/v1/projects/${pid}/revisions/${revision.id}/runs`, {}, { headers: { 'If-Match': revision.edit_version, 'Idempotency-Key': key } }),
-  runs: (pid: number) => api.get<{ items: RunSummary[]; total: number }>(`/v1/projects/${pid}/runs?limit=100`),
-  report: (runId: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/report`),
-  run: (runId: string) => api.get<RunSummary>(`/v1/runs/${encodeURIComponent(runId)}`),
+  runs: (pid: number, signal?: AbortSignal) => api.get<{ items: RunSummary[]; total: number }>(`/v1/projects/${pid}/runs?limit=100`, { signal }),
+  report: (runId: string, signal?: AbortSignal) => api.get(`/v1/runs/${encodeURIComponent(runId)}/report`, { signal }),
+  run: (runId: string, signal?: AbortSignal) => api.get<RunSummary>(`/v1/runs/${encodeURIComponent(runId)}`, { signal }),
   cancel: (runId: string) => api.post<RunSummary>(`/v1/runs/${encodeURIComponent(runId)}/cancel`),
   compare: (runId: string, previous: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/compare/${encodeURIComponent(previous)}`),
-  decision: (runId: string, data: unknown) => api.post(`/v1/runs/${encodeURIComponent(runId)}/decisions`, data),
+  decision: (runId: string, data: DecisionCreate) => api.post(`/v1/runs/${encodeURIComponent(runId)}/decisions`, data),
   suggestion: (runId: string, findingId: number, data: unknown, key: string, version?: number) => api.post(`/v1/runs/${encodeURIComponent(runId)}/suggestions/${findingId}/decisions`, data, { headers: { 'Idempotency-Key': key, ...(version ? { 'If-Match': String(version) } : {}) } }),
   exportTrace: (runId: string) => api.get(`/v1/runs/${encodeURIComponent(runId)}/traceability.csv`, { responseType: 'blob' }),
   source: (pid: number, aid: number) => `${API_URL}/v1/projects/${pid}/artifacts/${aid}/source`,

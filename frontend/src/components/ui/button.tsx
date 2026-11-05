@@ -5,21 +5,21 @@ import { cn } from "@/lib/utils"
 import { Loader2 } from "lucide-react"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded text-xs font-medium tracking-normal transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#7895B5] disabled:pointer-events-none disabled:opacity-40 select-none",
+  "inline-flex items-center justify-center gap-2 rounded text-xs font-medium tracking-normal transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-40 select-none",
   {
     variants: {
       variant: {
-        default: "bg-[#7895B5] text-[#111214] font-semibold hover:bg-[#8CA8C8]",
-        secondary: "bg-[#1D1E22] text-[#E7E7E9] border border-[#303136] hover:bg-[#24252A] hover:border-[#3D3E44]",
-        outline: "bg-transparent text-[#E7E7E9] border border-[#303136] hover:bg-[#1D1E22] hover:border-[#3D3E44]",
-        ghost: "bg-transparent text-[#A1A1AA] hover:text-[#E7E7E9] hover:bg-[#1D1E22]",
-        destructive: "bg-[#C04848]/20 text-[#E06C6C] border border-[#C04848]/40 hover:bg-[#C04848]/30",
-        link: "text-[#7895B5] underline-offset-4 hover:underline p-0 h-auto",
-        success: "bg-[#4E8752]/20 text-[#68A86C] border border-[#4E8752]/40 hover:bg-[#4E8752]/30",
+        default: "bg-primary text-primary-foreground font-semibold hover:opacity-90",
+        secondary: "bg-card text-foreground border border-border hover:bg-accent hover:border-primary",
+        outline: "bg-transparent text-foreground border border-border hover:bg-card hover:border-primary",
+        ghost: "bg-transparent text-muted-foreground hover:text-foreground hover:bg-card",
+        destructive: "bg-danger/20 text-danger border border-danger/40 hover:bg-danger/30",
+        link: "text-primary underline-offset-4 hover:underline p-0 h-auto",
+        success: "bg-success/20 text-success border border-success/40 hover:bg-success/30",
       },
       size: {
         default: "h-8 px-3 py-1.5",
-        sm: "h-7 px-2.5 text-[11px]",
+        sm: "h-7 px-2.5 text-xs",
         lg: "h-9 px-4 text-xs font-semibold",
         icon: "h-8 w-8 p-0",
       },

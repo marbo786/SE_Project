@@ -6,6 +6,50 @@ class StrictInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
+class ArtifactSummary(BaseModel):
+    id: int
+    type: str
+    filename: str
+    sha256: str | None
+    size_bytes: int | None
+
+
+class RevisionOut(BaseModel):
+    id: int
+    project_id: int
+    number: int
+    parent_id: int | None
+    state: Literal['draft', 'sealed']
+    edit_version: int
+    analysis_profile: Literal['srs_only', 'architecture']
+    analysis_mode: Literal['deterministic', 'ai']
+    extraction_confirmed: bool
+    legacy_version: int | None
+    created_at: str
+    sealed_at: str | None
+    artifacts: list[ArtifactSummary]
+
+
+class RunOut(BaseModel):
+    id: str
+    project_id: int
+    revision_id: int
+    has_report: bool
+    attempt_count: int
+    cancel_requested: bool
+    heartbeat_at: str | None
+    status: Literal['queued', 'running', 'completed', 'partial', 'failed', 'cancelled']
+    stage: str
+    counts: dict[str, int]
+    versions: dict[str, str]
+    input_hash: str | None
+    error_code: str | None
+    error_message: str | None
+    created_at: str
+    started_at: str | None
+    finished_at: str | None
+
+
 class DraftCreate(StrictInput):
     parent_revision_id: int | None = None
 
@@ -34,6 +78,19 @@ class DecisionCreate(StrictInput):
 class ProjectLifecycle(StrictInput):
     action: Literal['archive', 'restore', 'delete']
     confirmation: str | None = None
+
+
+class ProjectRename(StrictInput):
+    name: str = Field(min_length=1, max_length=120)
+    expected_name: str = Field(max_length=120)
+
+
+class ManualTrace(StrictInput):
+    source_type: Literal['requirement', 'usecase', 'sequence']
+    source_id: str = Field(min_length=1, max_length=512)
+    target_type: Literal['usecase', 'sequence', 'class']
+    target_id: str = Field(min_length=1, max_length=512)
+    reason: str = Field(min_length=1, max_length=4000)
 
 
 class SuggestionInput(StrictInput):

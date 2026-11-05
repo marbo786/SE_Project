@@ -29,8 +29,8 @@ export default function RecoveryPage({ mode }: { mode: 'request' | 'reset' | 've
     } catch (err) { setError(apiError(err)) }
     finally { setBusy(false) }
   }
-  return <main className="min-h-screen flex items-center justify-center p-6 bg-[#111214] text-[#E7E7E9]">
-    <div className="w-full max-w-md space-y-6 rounded border border-[#303136] bg-[#1D1E22] p-8">
+  return <main className="min-h-screen flex items-center justify-center p-6 bg-background text-foreground">
+    <div className="w-full max-w-md space-y-6 rounded border border-border bg-card p-8">
       <h1 className="text-xl font-semibold">{title}</h1>
       {error && <p role="alert" className="text-red-300">{error}</p>}
       {message ? <p role="status">{message}</p> : <form onSubmit={submit} className="space-y-4">
