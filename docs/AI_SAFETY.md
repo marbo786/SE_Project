@@ -43,3 +43,10 @@ Run `python backend/scripts/evaluate_ai.py` for the offline synthetic benchmark 
 Opt-in live evaluation is available as `python backend/scripts/evaluate_ai.py --live --allow-external-fixtures`. It sends only the checked-in synthetic fixture, uses a disposable database, applies configured budgets, and reports coverage, usage and conflict precision/recall. A partial live evaluation exits nonzero. Configure a real provider and verified model prices first. This command was **not** run with a live provider during implementation.
 
 M5's implementation and automated contract gates are complete. Live-provider quality, independent annotation, production-scale cost/latency and adversarial generalization remain M8 release-qualification measurements. Regex redaction is not comprehensive anonymization, lexical/semantic checks are not proof of intent preservation, and no current test establishes production accuracy or a 10/10 product rating.
+
+
+## Local inference adapter
+
+Set `LLM_PROVIDER=local`, `LLM_MODEL` to an installed model name, and `LOCAL_LLM_URL` to its OpenAI-compatible chat-completions endpoint. Only loopback addresses or localhost are accepted. The HTTP client ignores environment proxies, refuses redirects, bounds response bytes, and sends no Groq credential. The existing gateway still applies redaction, schema/evidence validation, run budgets, scoped caching, and audit accounting. Configure a zero-price entry for the local provider/model when enforcing monetary budgets; do not invent a hosted-provider price.
+
+A local server must run in the same network namespace as the worker. Native local development can use a host loopback server; Docker workers need inference reachable on their own loopback (for example a deliberately shared network namespace). Remote LAN/cloud URLs are rejected. Adapter transport tests use mocked responses; real local-model output quality is not yet qualified.

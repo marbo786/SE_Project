@@ -1,52 +1,89 @@
 # SRS Reviewer
 
-SRS documents are traditionally reviewed by hand, slowly and inconsistently; this tool checks that requirements, diagrams, and traceability agree.
+**Find unclear requirements, inspect the evidence, and check whether the design supports what the specification promises.**
 
-SRS Reviewer is a hybrid rule-plus-LLM analyzer that parses your software requirements (DOCX/PDF) and PlantUML diagrams, detects architectural defects, and uses an agentic repair loop to proactively suggest testable rewrites for defective requirements.
+SRS Reviewer is a requirements-review workspace for software engineering students, instructors, and small teams. It reads Software Requirements Specification (SRS) documents and PlantUML diagrams, runs rule-based checks and optional AI analysis, and helps a reviewer turn findings into a revised specification.
 
-## Architecture
+The aim is to make a review explainable and repeatable. A finding should lead back to source text; a score should show its scope and calculation; a proposed rewrite should remain a proposal until a person reviews it.
+
+## The problem it addresses
+
+A specification can look complete while leaving important questions unanswered. What does “respond quickly” mean? Are two requirements inconsistent? Does a sequence call an operation that exists on the receiving class? Which requirements have a path to the architecture, and which mappings are only guesses?
+
+Reviewing those questions manually across documents and diagrams is slow. SRS Reviewer brings the source evidence, checks, trace links, and revision history into one place. It supports human review; it does not certify that a specification is correct or complete.
+
+## What you can do today
+
+- **Review requirements:** upload DOCX or text-based PDF files, inspect extracted paragraphs and table rows, and correct text, identifiers, or classifications before analysis.
+- **Check architecture:** add multiple named use-case, class, and sequence diagrams in supported PlantUML syntax. Inspect unresolved relationships, operation mismatches, disconnected elements, and trace gaps.
+- **Choose the scope:** run requirements-only checks, or evaluate requirements together with all three architecture diagram types. Deterministic checks work without an AI service.
+- **Understand results:** see prioritized findings, quoted evidence, source locations, evaluated coverage, and category scores with their weights and contributions. Incomplete analysis is marked partial rather than assigned a misleading final grade.
+- **Review AI suggestions:** optionally request testability/conflict checks and rewrite proposals through a bounded AI gateway. Inspect validation results and text differences, then accept, edit, or reject a proposal. Model agreement is not proof that intent was preserved.
+- **Review traceability:** inspect candidate links and their evidence, confirm or reject mappings, add manual links, and follow architecture impact paths. Similarity values are not probabilities of correctness.
+- **Revise without losing history:** create a new draft, apply corrections, rerun analysis, and compare requirement and finding changes. Earlier reports and source files remain available.
+- **Use the workspace comfortably:** search and filter findings, reopen URL-linked review states, use keyboard/mobile navigation, switch themes, print a complete report, and download traceability CSV.
+
+Projects are private to their owners. Multi-user project membership, instructor submission workflows, and shared review assignments are planned; they are not current product capabilities.
+
+## A typical review
+
+Suppose an SRS says **“The catalog shall respond fast.”**
+
+1. Upload the document and inspect the extracted requirement against its source.
+2. Run a requirements-only analysis. An ambiguity finding points to the statement that needs clarification.
+3. Determine an appropriate response target with stakeholders. The reviewer—not the tool—decides the required behavior and its conditions.
+4. Save the corrected statement in a new draft and analyze it again.
+5. Compare reports to see which findings disappeared, persisted, or were introduced.
+
+For a quick walkthrough, download the [synthetic library SRS](frontend/public/sample-requirements.docx), or use **Try a sample review** on the dashboard. Adding UML diagrams extends the review to architecture consistency and traceability.
+
+## How it works
 
 ```mermaid
-flowchart TD
-    A[Client Uploads SRS & UML] --> B[FastAPI Backend]
-    B --> Q[(Run and transactional outbox)]
-    Q --> W[Worker with lease and checkpoints]
-    W --> C[Parser Stage]
-    C --> D[Deterministic Checks]
-    D --> E[LLM Checks & Repair Loop]
-    E --> F[Traceability Linker]
-    F --> G[Scoring Engine]
-    G --> H[Final Report & Versioning]
+flowchart LR
+    Sources[DOCX / text PDF / PlantUML] --> Draft[Extraction preview and draft corrections]
+    Draft --> Run[Sealed revision and queued analysis]
+    Run --> Checks[Deterministic checks]
+    Checks --> AI[Optional bounded AI checks]
+    AI --> Report[Findings, trace links and scoped scores]
+    Report --> Review[Human review and decisions]
+    Review --> Next[New draft and comparison]
 ```
 
-## Pipeline Stages
+The React/TypeScript client talks to a FastAPI application through a same-origin API. SQLAlchemy and Alembic manage persistent project, revision, run, and review records. PostgreSQL, Redis, and Celery support the container-based worker setup; SQLite and a local worker support lightweight development.
 
-1. **Parser Stage**: Extracts section hierarchies and individual requirement statements from DOCX or PDF files. Converts PlantUML text into an internal UML graph model.
-2. **Deterministic Checks**: Runs high-speed regex and logic rules to find missing identifiers, duplicate IDs, ambiguous lexicon words, missing NFR metrics, and disconnected UML actors.
-3. **AI checks and reviewed suggestions**: Bounded testability and exhaustive conflict-pair batches validate occurrence coverage and source quotes. Rewrite proposals pass deterministic guards and an advisory semantic comparison, then require a human decision. Accepted or edited suggestions update a draft for fresh analysis; published reports remain immutable. See [AI safety, budgets, and evaluation](docs/AI_SAFETY.md).
-4. **Traceability Linker**: Calculates Jaccard overlap and uses transitive tracing (Requirement -> Use Case -> Sequence -> Class) to build a traceability matrix.
-5. **Scoring Engine**: Normalizes penalties by document size to calculate the final quality score.
+Analysis runs use a transactional outbox, worker leases, checkpoints, cancellation, and bounded recovery. A failed newer run preserves the earlier successful report. Review decisions and manual links are annotations; they do not silently rewrite a published machine score.
 
-## Quality scoring and evidence
+The AI gateway applies redaction, validated outputs, scoped caching, request/token/cost budgets, and usage auditing. Hosted inference uses the configured Groq provider. A local OpenAI-compatible adapter is being added on the finalization branch; its transport checks pass, but real-model quality is not yet qualified.
 
-Reviews select requirements-only or requirements-and-architecture scope. Rubric v2 exposes category percentages, eligible counts, and weighted contributions. Missing evidence is not full credit; empty or incomplete analysis has no final grade. Trace scores use stable coverage obligations, while candidate similarity and reviewer confirmation remain distinct. See [the analysis contract](docs/ANALYSIS_CONTRACT.md) for formulas, supported syntax, limitations, and provenance.
+## What the results mean
 
-## Evaluation
+Scores summarize checks within the selected scope and rubric. They are useful for explaining identified problems and tracking comparable revisions, not for proving overall software quality. Missing or unextractable evidence does not earn full credit. Different scopes, rule configurations, or analysis versions can make scores non-comparable.
 
-See [the reproducible fixture results](backend/eval/results.md). The evaluator counts each occurrence independently, including missing and duplicate authored IDs. The original small dataset is a development fixture; it does not establish production accuracy or AI reliability. Its generic NFR labels require review under the updated threshold rule. Regression tests additionally cover document extraction, UML, tracing, scoring, access controls, and failure recovery.
+The parser supports a documented subset: ordered DOCX paragraphs/tables, text PDFs, and use-case/class/sequence PlantUML constructs. It recognizes supported requirement IDs and whole-word “shall” or “must” statements. Scanned PDFs need OCR, which is not implemented. Complex layouts, text boxes, nested tables, and arbitrary PlantUML syntax are not guaranteed.
 
-## Setup
+AI suggestions require human judgment, especially when they introduce numbers, conditions, or exceptions. Existing automated tests and development fixtures establish regression behavior; they do not establish production accuracy, full accessibility conformance, or participant usability.
 
-Use **Python 3.13 and Node 24**. See [the development guide](docs/DEVELOPMENT.md) for setup, migrations, environment configuration, recovery email, Docker, and verification. On Windows run `./run_backend.ps1`, then `npm ci` and `npm run dev` from `frontend`.
+## Current status and remaining work
 
-Completed phases are merged into `main` after checks pass. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and remaining acceptance gates, and [worker operations](docs/JOBS.md) for durable execution and recovery. The evaluation above does not establish production accuracy or validate AI rewrites.
+Milestones M0–M6 are merged into `main`. The core upload → extraction → analysis → review → revision journey is implemented. M7 product extensions and M8 release qualification remain unfinished.
 
-## Review workspace
+The main gaps are complete downloadable reports and corrected documents, configurable rubric templates, collaborative/classroom workflows, evaluated semantic suggestions, draft acceptance-test generation, and production operations/validation. See the [remaining-work checklist](docs/REMAINING_WORK.md) for a concrete breakdown and [implementation status](IMPLEMENTATION_STATUS.md) for evidence.
 
-The [workspace guide](docs/REVIEW_WORKSPACE.md) covers the sample walkthrough, extraction corrections, review decisions, trace evidence, revision comparison, themes, keyboard/mobile navigation, and complete printing. Reports remain tied to their selected run; draft edits and review annotations do not rewrite prior machine scores.
+## Run or contribute
 
-## Limitations
+Use **Python 3.13 and Node 24**. Follow the [development guide](docs/DEVELOPMENT.md) for installation, migrations, API and worker startup, Docker, and test commands. The [workspace guide](docs/REVIEW_WORKSPACE.md) explains the review flow.
 
-- The parser depends on standard IEEE numbering and the keyword "shall". Requirements written entirely in narrative form without identifiers or standard keywords may be skipped.
-- PlantUML parsing relies on regex heuristics rather than a full grammar parser, so highly complex or nested diagram syntax might be misinterpreted.
-- Deterministic analysis works offline. Optional AI checks use an external provider, configured model prices, and request/token/cost budgets. Their coverage and estimates are visible in reports; live-model accuracy remains a release-qualification measurement.
+| Area | Location |
+|---|---|
+| API, parsers, rules, AI gateway and workers | `backend/app/` |
+| Database migrations and automated backend tests | `backend/alembic/`, `backend/tests/` |
+| Review interface and browser tests | `frontend/src/`, `frontend/tests/` |
+| Maintained verification and maintenance commands | `scripts/`, `backend/scripts/` |
+| Analysis rules, operating guides and remaining work | `docs/` |
+
+Further details: [analysis contract](docs/ANALYSIS_CONTRACT.md), [AI safety](docs/AI_SAFETY.md), [revision history](docs/REVISION_HISTORY.md), and [worker operations](docs/JOBS.md). Historical audit and feasibility documents are retained as project records; current behavior is described above and in the maintained guides.
+
+## License
+
+[MIT](LICENSE).

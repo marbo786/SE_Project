@@ -30,3 +30,10 @@ backups/
 # IDEs
 .vscode/
 .idea/
+
+# Generated development caches and scratch uploads
+.vite/
+backend/test_*.docx
+tests/artifacts/
+.env.*
+!.env.example

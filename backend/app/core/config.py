@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     GROQ_API_KEY: str = ""
     LLM_PROVIDER: str = "mock"
+    LOCAL_LLM_URL: str = "http://127.0.0.1:11434/v1/chat/completions"
     LLM_TIMEOUT_SECONDS: float = Field(default=60, ge=1, le=120)
     LLM_MAX_PROMPT_CHARACTERS: int = Field(default=24000, ge=100, le=100000)
     LLM_MAX_RESPONSE_CHARACTERS: int = Field(default=16000, ge=100, le=100000)

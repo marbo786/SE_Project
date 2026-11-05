@@ -10,7 +10,7 @@ For requirements and UML, raw percentage is `max(0, 100 - severity_penalty / eli
 
 Requirements-only reviews give the requirements category 100% weight. Architecture reviews use 40% requirements, 30% UML, and 30% traceability. Each category exposes its raw percentage, denominator, weight, and weighted contribution. No extracted requirements, missing evaluated categories, parser warnings, or failed requested AI checks suppress the overall grade. Available category results remain visible as partial evidence. Reviewer decisions do not silently change the raw machine score. Confirmed coverage in a score is a snapshot at analysis time; current link decisions are shown in the matrix.
 
-Legacy scores retain their original values and have no v2 details. Do not compare them with v2 scores. Comparability also requires the same scope and evaluated diagram set. Immutable run history and decision-adjusted snapshots follow in M3.
+Legacy scores retain their original values and have no v2 details. Do not compare them with v2 scores. Comparability also requires the same scope and evaluated diagram set. Immutable run history is implemented. Review decisions are stored separately and do not recalculate the published machine score.
 
 ## Extraction
 
@@ -32,7 +32,7 @@ Tracing checks all available supported pairs, uses exact normalized authored-ID 
 
 The operating defaults are 1,000 requirements and 2,000 UML elements, in addition to the upload/page/character/ZIP budgets in the development guide. SRS and UML analysis parsing both run in killable subprocesses with a wall-time limit and Linux address-space cap. These are conservative defaults, not measured deployment capacity.
 
-A result is built before publishing findings, extraction, links, score, and status in one transaction. A fatal reanalysis failure preserves the prior report and gives an actionable error. Active reports poll automatically. Durable execution and immutable revisions remain separate milestones.
+A result is built before publishing findings, extraction, links, score, and status in one transaction. A fatal reanalysis failure preserves the prior report and gives an actionable error. Active reports poll automatically. Durable execution and immutable revisions are implemented; see the worker and revision guides.
 
 ## Verification limits
 

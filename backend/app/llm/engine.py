@@ -24,6 +24,12 @@ class OutputValidationError(AIError):
 
 def get_provider():
     settings = get_settings()
+    if settings.LLM_PROVIDER == 'local':
+        from .local_provider import LocalProvider
+        try:
+            return LocalProvider()
+        except ValueError:
+            raise AIError('local_provider_requires_loopback_url') from None
     if settings.LLM_PROVIDER == "groq":
         return GroqProvider()
     if settings.LLM_PROVIDER == "mock" and settings.APP_ENV != "production":
