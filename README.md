@@ -41,6 +41,10 @@ Use **Python 3.13 and Node 24**. See [the development guide](docs/DEVELOPMENT.md
 
 Completed phases are merged into `main` after checks pass. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and remaining acceptance gates, and [worker operations](docs/JOBS.md) for durable execution and recovery. The evaluation above does not establish production accuracy or validate AI rewrites.
 
+## Review workspace
+
+The [workspace guide](docs/REVIEW_WORKSPACE.md) covers the sample walkthrough, extraction corrections, review decisions, trace evidence, revision comparison, themes, keyboard/mobile navigation, and complete printing. Reports remain tied to their selected run; draft edits and review annotations do not rewrite prior machine scores.
+
 ## Limitations
 
 - The parser depends on standard IEEE numbering and the keyword "shall". Requirements written entirely in narrative form without identifiers or standard keywords may be skipped.

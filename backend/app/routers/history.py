@@ -17,7 +17,7 @@ from ..models.project import Project
 from ..models.artifact import Artifact
 from ..models.history import ProjectRevision, AnalysisRun, RunFinding, RunTraceLink, ReviewDecision, Requirement, UMLElement, SuggestionDecision
 from ..schemas.project import ProjectCreate, ProjectOut
-from ..schemas.history import DraftCreate, RevisionUpdate, RequirementUpdate, DecisionCreate, ProjectLifecycle, SuggestionInput
+from ..schemas.history import DraftCreate, RevisionUpdate, RequirementUpdate, DecisionCreate, ProjectLifecycle, SuggestionInput, ProjectRename, ManualTrace, RevisionOut, RunOut
 from ..services import history as service
 from ..services.extraction import extract_draft, correct_requirement
 from ..pipeline.analyzer import run_analysis_pipeline
@@ -97,7 +97,7 @@ def revisions(project_id: int, limit: int = Query(20, ge=1, le=100), offset: int
     return {'items': [service.revision_summary(db, r) for r in query.order_by(ProjectRevision.number.desc()).offset(offset).limit(limit)], 'total': query.count()}
 
 
-@router.post('/projects/{project_id}/drafts', status_code=201)
+@router.post('/projects/{project_id}/drafts', status_code=201, response_model=RevisionOut)
 def create_draft(project_id: int, data: DraftCreate, idempotency_key: str | None = Header(None),
                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = require_project_access(db, user, project_id)
@@ -111,13 +111,13 @@ def create_draft(project_id: int, data: DraftCreate, idempotency_key: str | None
     return result
 
 
-@router.get('/projects/{project_id}/revisions/{revision_id}')
+@router.get('/projects/{project_id}/revisions/{revision_id}', response_model=RevisionOut)
 def get_revision(project_id: int, revision_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = require_project_access(db, user, project_id)
     return service.revision_summary(db, service.revision_for(db, project, revision_id))
 
 
-@router.patch('/projects/{project_id}/revisions/{revision_id}')
+@router.patch('/projects/{project_id}/revisions/{revision_id}', response_model=RevisionOut)
 def edit_revision(project_id: int, revision_id: int, data: RevisionUpdate, if_match: str | None = Header(None),
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = require_project_access(db, user, project_id)
@@ -224,7 +224,7 @@ def correction(project_id: int, revision_id: int, element_key: str, data: Requir
     return {'edit_version': revision.edit_version, 'requirement': requirement}
 
 
-@router.post('/projects/{project_id}/revisions/{revision_id}/runs', status_code=202)
+@router.post('/projects/{project_id}/revisions/{revision_id}/runs', status_code=202, response_model=RunOut)
 def analyze(project_id: int, revision_id: int, background_tasks: BackgroundTasks,
             if_match: str | None = Header(None), idempotency_key: str | None = Header(None),
             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -252,12 +252,12 @@ def runs(project_id: int, limit: int = Query(20, ge=1, le=100), offset: int = Qu
     return {'items': [service.run_summary(run) for run in query.order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc()).offset(offset).limit(limit)], 'total': query.count()}
 
 
-@router.get('/runs/{run_id}')
+@router.get('/runs/{run_id}', response_model=RunOut)
 def run_status(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return service.run_summary(run_access(db, user, run_id))
 
 
-@router.post('/runs/{run_id}/cancel', status_code=202)
+@router.post('/runs/{run_id}/cancel', status_code=202, response_model=RunOut)
 def cancel(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..services.jobs import request_cancel
     run = run_access(db, user, run_id)
@@ -274,6 +274,9 @@ def report(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_
         raise HTTPException(409, 'This run has no published report; check its status')
     decisions = service.latest_decisions(db, run_id)
     payload = deepcopy(run.report)
+    payload['trace_links'] = [*payload.get('trace_links', []), *[
+        {**row.data, 'id': row.id} for row in db.query(RunTraceLink).filter_by(run_id=run.id)
+        if row.data.get('origin') == 'manual']]
     if payload.get('legacy'):
         # The original import stays immutable. Expose mapped target IDs so new
         # decisions do not accidentally address unrelated old projection rows.
@@ -394,3 +397,60 @@ def suggestion_decision(run_id: str, finding_id: int, data: SuggestionInput,
     service.remember(db, user.id, scope, idempotency_key, body, result)
     db.commit()
     return result
+
+@router.patch('/projects/{project_id}', response_model=ProjectOut)
+def rename_project(project_id: int, data: ProjectRename, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = require_project_access(db, user, project_id)
+    service.lock_project(db, project); service.require_writable(project)
+    if project.name != data.expected_name:
+        raise HTTPException(409, 'This project was renamed. Refresh before saving.')
+    if not data.name.strip():
+        raise HTTPException(422, 'Enter a project name')
+    project.name = data.name.strip()
+    service.audit(db, project, user.id, 'project_renamed')
+    db.commit()
+    return project
+
+
+def trace_endpoints(run):
+    nodes = {}
+    for extraction in (run.report or {}).get('extractions', {}).values():
+        for collection, kind in [('requirements', 'requirement'), ('use_cases', 'usecase'), ('messages', 'sequence'), ('participants', 'sequence'), ('classes', 'class')]:
+            for element in extraction.get(collection, []):
+                key = element.get('internal_id') if kind == 'requirement' else element.get('id')
+                if key:
+                    nodes[(kind, key)] = element.get('text') or element.get('name') or element.get('message') or key
+    return nodes
+
+
+@router.get('/runs/{run_id}/trace-endpoints')
+def endpoints(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    run = run_access(db, user, run_id)
+    return [{'type': kind, 'id': key, 'label': label} for (kind, key), label in trace_endpoints(run).items()]
+
+
+@router.post('/runs/{run_id}/manual-traces', status_code=201)
+def manual_trace(run_id: str, data: ManualTrace, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    run = run_access(db, user, run_id)
+    project = require_project_access(db, user, run.project_id)
+    service.lock_project(db, project); service.require_writable(project)
+    if not run.report:
+        raise HTTPException(409, 'Wait for a report before adding a link')
+    if (data.source_type, data.target_type) not in {('requirement', 'usecase'), ('requirement', 'sequence'), ('requirement', 'class'), ('usecase', 'sequence'), ('usecase', 'class'), ('sequence', 'class')}:
+        raise HTTPException(422, 'Choose a supported requirement-to-architecture or architecture-to-architecture relation')
+    nodes = trace_endpoints(run)
+    if (data.source_type, data.source_id) not in nodes or (data.target_type, data.target_id) not in nodes:
+        raise HTTPException(422, 'Both endpoints must exist in the selected report')
+    if not data.reason.strip():
+        raise HTTPException(422, 'Describe the source evidence for this link')
+    fields = data.model_dump(exclude={'reason'})
+    if existing := db.query(RunTraceLink).filter_by(run_id=run.id, **fields).first():
+        return {**existing.data, 'id': existing.id}
+    payload = {**fields, 'source_label': nodes[(data.source_type, data.source_id)], 'target_label': nodes[(data.target_type, data.target_id)],
+        'origin': 'manual', 'status': 'confirmed', 'evidence': {'note': data.reason.strip()}}
+    row = RunTraceLink(run_id=run.id, **fields, fingerprint=service.trace_fingerprint(payload), data=payload)
+    db.add(row); db.flush()
+    db.add(ReviewDecision(run_id=run.id, trace_id=row.id, actor_id=user.id, status='confirmed', reason=data.reason.strip()))
+    service.audit(db, project, user.id, 'manual_trace_added', run_id=run.id, trace_id=row.id)
+    db.commit()
+    return {**payload, 'id': row.id}

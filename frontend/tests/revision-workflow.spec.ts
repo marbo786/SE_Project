@@ -65,6 +65,7 @@ test('review extraction, analyze, branch, and reopen immutable history', async (
     await route.fulfill({ status: 201, json: { decision, draft_id: body.draft_id } })
   })
   await page.reload()
+  await page.getByRole('button', { name: /^Findings/ }).click()
   const review = page.getByRole('region', { name: 'Review rewrite suggestion' })
   await expect(review).toBeVisible()
   await review.screenshot({ path: testInfo.outputPath('suggestion-review-form.png') })

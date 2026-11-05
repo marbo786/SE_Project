@@ -32,6 +32,8 @@ jobs:
       run: |
         cd backend
         python -m pytest tests/ -v
+    - name: Verify generated API types
+      run: python scripts/generate_api_types.py --check
     - name: Offline AI contract benchmark
       run: python backend/scripts/evaluate_ai.py
     - name: Audit Python dependencies

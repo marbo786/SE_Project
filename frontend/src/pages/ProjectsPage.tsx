@@ -1,3 +1,7 @@
+import { useQuery } from '@tanstack/react-query'
+import { historyApi } from '@/lib/api'
+import { useProjects } from '@/lib/queries'
+import { apiError } from '@/lib/api'
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { projectsApi } from '@/lib/api'
@@ -19,33 +23,19 @@ interface Project {
   created_at?: string
 }
 
-type StatusFilter = 'all' | 'done' | 'analyzing' | 'error'
+type StatusFilter = 'all' | 'done' | 'analyzing' | 'error' | 'partial' | 'pending'
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState<string>('')
+  const [archived, setArchived] = useState(false)
+  const activeQuery = useProjects()
+  const archivedQuery = useQuery({ queryKey: ['archived-projects'], queryFn: async () => (await historyApi.archived()).data.items, enabled: archived })
+  const query = archived ? archivedQuery : activeQuery
+  const projects = (query.data || []) as Project[]
+  const loading = query.isPending
+  const error = query.isError ? apiError(query.error) : null
+  const fetchProjects = () => { void query.refetch() }
+  const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-
-  const fetchProjects = () => {
-    setLoading(true)
-    setError(null)
-    projectsApi.list()
-      .then(res => {
-        setProjects(Array.isArray(res.data) ? res.data : [])
-      })
-      .catch((err: any) => {
-        setError(err.response?.data?.detail || 'Failed to retrieve project list')
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }
-
-  useEffect(() => {
-    fetchProjects()
-  }, [])
 
   // Client-side search and status filter
   const filteredProjects = useMemo(() => {
@@ -65,7 +55,7 @@ export default function ProjectsPage() {
 
   // Count by status
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: projects.length, done: 0, analyzing: 0, error: 0 }
+    const counts: Record<string, number> = { all: projects.length, done: 0, analyzing: 0, error: 0, partial: 0, pending: 0 }
     projects.forEach(p => {
       const s = p.status?.toLowerCase()
       if (counts[s] !== undefined) counts[s]++
@@ -77,17 +67,18 @@ export default function ProjectsPage() {
     <div className="space-y-4">
       {/* Header */}
       <PageHeader
-        title="Specifications Repository"
+        title="Projects"
         description="Index of analyzed software requirements and architectural traces"
       >
         <Link to="/projects/new">
           <Button>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
-            New Specification
+            New project
           </Button>
         </Link>
       </PageHeader>
 
+      <label className="flex gap-2 items-center"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />Show archived projects</label>
       {/* Toolbar: Search and Filter */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pb-2">
         <div className="flex items-center gap-2 flex-1 max-w-sm">
@@ -100,22 +91,23 @@ export default function ProjectsPage() {
         </div>
 
         {/* Filter segment */}
-        <div className="flex items-center gap-1 border border-[#303136] rounded p-0.5 bg-[#17181B] text-xs font-mono">
-          {(['all', 'done', 'analyzing', 'error'] as const).map(tab => {
+        <div className="flex flex-wrap items-center gap-1 border border-border rounded p-0.5 bg-secondary text-xs font-mono">
+          {(['all', 'pending', 'done', 'analyzing', 'partial', 'error'] as const).map(tab => {
             const active = statusFilter === tab
             return (
               <button
                 key={tab}
+                aria-pressed={active}
                 onClick={() => setStatusFilter(tab)}
                 className={cn(
-                  "px-2 py-0.5 rounded text-[11px] uppercase transition-none",
+                  "px-2 py-0.5 rounded text-xs uppercase transition-none",
                   active
-                    ? "bg-[#1D1E22] text-[#E7E7E9] font-medium border border-[#303136]"
-                    : "text-[#777981] hover:text-[#A1A1AA]"
+                    ? "bg-card text-foreground font-medium border border-border"
+                    : "text-muted-foreground hover:text-muted-foreground"
                 )}
               >
                 {tab}
-                <span className="ml-1 text-[10px] text-[#777981]">
+                <span className="ml-1 text-xs text-muted-foreground">
                   ({statusCounts[tab] ?? 0})
                 </span>
               </button>
@@ -125,11 +117,11 @@ export default function ProjectsPage() {
       </div>
 
       {/* Main Table Content */}
-      <div className="rounded border border-[#303136] bg-[#1D1E22] overflow-hidden">
+      <div className="rounded border border-border bg-card overflow-hidden">
         {loading ? (
           <SkeletonTable rows={6} cols={5} />
         ) : error ? (
-          <div className="p-8 text-center text-xs text-[#E06C6C] space-y-3">
+          <div role="alert" className="p-8 text-center text-xs text-danger space-y-3">
             <p>{error}</p>
             <Button variant="outline" size="sm" onClick={fetchProjects}>
               <RefreshCw className="mr-1.5 h-3 w-3" />
@@ -142,7 +134,7 @@ export default function ProjectsPage() {
             title="No specifications available"
             description="Create your first specification project to initiate requirements inspection."
             action={{
-              label: "Ingest Specification",
+              label: "New project",
               onClick: () => window.location.href = '/projects/new',
             }}
             className="m-6"
@@ -165,7 +157,7 @@ export default function ProjectsPage() {
           <div className="overflow-x-auto scrollbar-technical">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-[#303136] bg-[#17181B] text-[10px] font-mono uppercase tracking-wider text-[#777981]">
+                <tr className="border-b border-border bg-secondary text-xs font-mono uppercase tracking-wider text-muted-foreground">
                   <th className="py-2.5 px-3.5 font-medium">Specification Name</th>
                   <th className="py-2.5 px-3 font-medium">Revision</th>
                   <th className="py-2.5 px-3 font-medium">Status</th>
@@ -173,44 +165,44 @@ export default function ProjectsPage() {
                   <th className="py-2.5 px-3.5 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#303136]/50">
+              <tbody className="divide-y divide-border/50">
                 {filteredProjects.map((project) => (
                   <tr
                     key={project.id}
-                    className="hover:bg-[#24252A]/50 transition-none group"
+                    className="hover:bg-accent/50 transition-none group"
                   >
                     <td className="py-2.5 px-3.5 max-w-sm">
                       <Link
                         to={`/projects/${project.id}`}
-                        className="font-medium text-[#E7E7E9] hover:text-[#7895B5] transition-none block truncate"
+                        className="font-medium text-foreground hover:text-primary transition-none block truncate"
                       >
                         {project.name}
                       </Link>
                       {project.description && (
-                        <p className="text-[11px] text-[#777981] truncate mt-0.5">
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {project.description}
                         </p>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[#A1A1AA]">
+                    <td className="py-2.5 px-3 whitespace-nowrap font-mono text-muted-foreground">
                       v{project.version || '1'}
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <span
                         className={cn(
-                          "inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-mono border uppercase",
+                          "inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-mono border uppercase",
                           statusColor(project.status)
                         )}
                       >
                         {project.status || 'unknown'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-[11px] font-mono text-[#777981] whitespace-nowrap" title={project.created_at ? formatDate(project.created_at) : undefined}>
+                    <td className="py-2.5 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap" title={project.created_at ? formatDate(project.created_at) : undefined}>
                       {project.created_at ? formatRelativeDate(project.created_at) : '—'}
                     </td>
                     <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
                       <Link to={`/projects/${project.id}`}>
-                        <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]">
+                        <Button variant="outline" size="sm" className="h-6 px-2 text-xs">
                           Inspect Report
                           <ArrowRight className="ml-1 h-3 w-3" />
                         </Button>

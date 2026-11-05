@@ -8,30 +8,30 @@ export function cn(...inputs: ClassValue[]) {
 export function severityColor(severity: string): string {
   switch (severity?.toLowerCase()) {
     case 'critical':
-      return 'bg-[#C04848]/10 text-[#E06C6C] border-[#C04848]/30'
+      return 'bg-danger/10 text-danger border-danger/30'
     case 'major':
-      return 'bg-[#B8863A]/10 text-[#D49E4B] border-[#B8863A]/30'
+      return 'bg-warning/10 text-warning border-warning/30'
     case 'minor':
-      return 'bg-[#A89048]/10 text-[#C4AC55] border-[#A89048]/30'
+      return 'bg-warning/10 text-[#C4AC55] border-warning/30'
     case 'info':
-      return 'bg-[#7895B5]/10 text-[#96B2D1] border-[#7895B5]/30'
+      return 'bg-primary/10 text-primary border-primary/30'
     default:
-      return 'bg-[#17181B] text-[#A1A1AA] border-[#303136]'
+      return 'bg-secondary text-muted-foreground border-border'
   }
 }
 
 export function severityBorderColor(severity: string): string {
   switch (severity?.toLowerCase()) {
     case 'critical':
-      return 'border-l-[#C04848]'
+      return 'border-l-danger'
     case 'major':
-      return 'border-l-[#B8863A]'
+      return 'border-l-warning'
     case 'minor':
-      return 'border-l-[#A89048]'
+      return 'border-l-warning'
     case 'info':
-      return 'border-l-[#7895B5]'
+      return 'border-l-primary'
     default:
-      return 'border-l-[#303136]'
+      return 'border-l-border'
   }
 }
 
@@ -49,36 +49,36 @@ export function severityBadgeVariant(severity: string): 'destructive' | 'default
 export function statusColor(status: string): string {
   switch (status?.toLowerCase()) {
     case 'done':
-      return 'bg-[#4E8752]/10 text-[#68A86C] border-[#4E8752]/30'
+      return 'bg-success/10 text-success border-success/30'
     case 'analyzing':
-      return 'bg-[#7895B5]/10 text-[#96B2D1] border-[#7895B5]/30'
+      return 'bg-primary/10 text-primary border-primary/30'
     case 'error':
-      return 'bg-[#C04848]/10 text-[#E06C6C] border-[#C04848]/30'
+      return 'bg-danger/10 text-danger border-danger/30'
     case 'pending':
     case 'partial':
-      return 'bg-[#17181B] text-[#A1A1AA] border-[#303136]'
+      return 'bg-secondary text-muted-foreground border-border'
     default:
-      return 'bg-[#17181B] text-[#777981] border-[#303136]'
+      return 'bg-secondary text-muted-foreground border-border'
   }
 }
 
 export function traceStatusColor(status: string): string {
   switch (status?.toLowerCase()) {
     case 'confirmed':
-      return 'bg-[#4E8752]/10 text-[#68A86C] border-[#4E8752]/30'
+      return 'bg-success/10 text-success border-success/30'
     case 'rejected':
-      return 'bg-[#C04848]/10 text-[#E06C6C] border-[#C04848]/30'
+      return 'bg-danger/10 text-danger border-danger/30'
     case 'suggested':
-      return 'bg-[#B8863A]/10 text-[#D49E4B] border-[#B8863A]/30'
+      return 'bg-warning/10 text-warning border-warning/30'
     default:
-      return 'bg-[#17181B] text-[#777981] border-[#303136]'
+      return 'bg-secondary text-muted-foreground border-border'
   }
 }
 
 export function scoreColor(score: number): string {
-  if (score >= 80) return 'text-[#68A86C]'
-  if (score >= 60) return 'text-[#D49E4B]'
-  return 'text-[#E06C6C]'
+  if (score >= 80) return 'text-success'
+  if (score >= 60) return 'text-warning'
+  return 'text-danger'
 }
 
 function apiDate(date: string | Date): Date {

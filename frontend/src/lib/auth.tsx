@@ -38,10 +38,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
   useEffect(() => {
     // Remove credentials left by versions that used localStorage.
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    try { localStorage.removeItem('token'); localStorage.removeItem('user') } catch { /* Storage is optional. */ }
     void refresh()
-    const expired = () => { setUser(null); cache.clear() }
+    const expired = () => { ++generation.current; setUser(null); setLoading(false); cache.clear() }
     window.addEventListener('session-expired', expired)
     return () => { ++generation.current; window.removeEventListener('session-expired', expired) }
   }, [refresh, cache])

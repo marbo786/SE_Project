@@ -6,7 +6,7 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "rounded border border-[#303136] bg-[#1D1E22] text-[#E7E7E9]",
+        "rounded border border-border bg-card text-foreground",
         className
       )}
       {...props}
@@ -17,21 +17,21 @@ Card.displayName = "Card"
 
 const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("flex flex-col space-y-1 p-4 border-b border-[#303136]/60", className)} {...props} />
+    <div ref={ref} className={cn("flex flex-col space-y-1 p-4 border-b border-border/60", className)} {...props} />
   )
 )
 CardHeader.displayName = "CardHeader"
 
 const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn("text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]", className)} {...props} />
+    <h3 ref={ref} className={cn("text-xs font-semibold uppercase tracking-wider text-muted-foreground", className)} {...props} />
   )
 )
 CardTitle.displayName = "CardTitle"
 
 const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn("text-xs text-[#777981]", className)} {...props} />
+    <p ref={ref} className={cn("text-xs text-muted-foreground", className)} {...props} />
   )
 )
 CardDescription.displayName = "CardDescription"
@@ -45,7 +45,7 @@ CardContent.displayName = "CardContent"
 
 const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("flex items-center p-4 border-t border-[#303136]/60", className)} {...props} />
+    <div ref={ref} className={cn("flex items-center p-4 border-t border-border/60", className)} {...props} />
   )
 )
 CardFooter.displayName = "CardFooter"

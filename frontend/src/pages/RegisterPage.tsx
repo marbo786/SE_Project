@@ -31,19 +31,19 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#111214] flex items-center justify-center p-4 font-sans text-[#E7E7E9]">
-      <div className="w-full max-w-sm rounded border border-[#303136] bg-[#1D1E22] p-6 space-y-5">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 font-sans text-foreground">
+      <div className="w-full max-w-sm rounded border border-border bg-card p-6 space-y-5">
         {/* Technical Header */}
-        <div className="space-y-1.5 border-b border-[#303136] pb-4">
+        <div className="space-y-1.5 border-b border-border pb-4">
           <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-5 h-5 rounded-sm bg-[#17181B] border border-[#303136] text-[#7895B5]">
+            <div className="flex items-center justify-center w-5 h-5 rounded-sm bg-secondary border border-border text-primary">
               <Terminal className="h-3 w-3" />
             </div>
-            <span className="font-mono text-xs font-semibold tracking-wider text-[#E7E7E9]">
+            <span className="font-mono text-xs font-semibold tracking-wider text-foreground">
               SRS_REVIEWER
             </span>
           </div>
-          <p className="text-xs text-[#777981]">
+          <p className="text-xs text-muted-foreground">
             New Operator Registration
           </p>
         </div>
@@ -51,17 +51,17 @@ export default function RegisterPage() {
         {/* Error Alert */}
         {error && (
           <div
-            className="p-2.5 rounded border border-[#C04848]/40 bg-[#C04848]/10 text-xs text-[#E06C6C] flex items-start gap-2 font-mono"
+            className="p-2.5 rounded border border-danger/40 bg-danger/10 text-xs text-danger flex items-start gap-2 font-mono"
             role="alert"
           >
-            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[#E06C6C]" />
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-danger" />
             <span className="leading-tight">{error}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div className="space-y-1">
-            <Label htmlFor="name" className="text-xs text-[#A1A1AA] font-mono">
+            <Label htmlFor="name" className="text-xs text-muted-foreground font-mono">
               OPERATOR NAME
             </Label>
             <Input
@@ -78,7 +78,7 @@ export default function RegisterPage() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="email" className="text-xs text-[#A1A1AA] font-mono">
+            <Label htmlFor="email" className="text-xs text-muted-foreground font-mono">
               EMAIL ADDRESS
             </Label>
             <Input
@@ -94,7 +94,7 @@ export default function RegisterPage() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="password" className="text-xs text-[#A1A1AA] font-mono">
+            <Label htmlFor="password" className="text-xs text-muted-foreground font-mono">
               PASSWORD (12–128 CHARACTERS)
             </Label>
             <div className="relative">
@@ -114,7 +114,7 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#777981] hover:text-[#E7E7E9]"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 tabIndex={-1}
               >
@@ -128,11 +128,11 @@ export default function RegisterPage() {
           </Button>
         </form>
 
-        <div className="pt-2 border-t border-[#303136] text-center text-xs text-[#777981]">
+        <div className="pt-2 border-t border-border text-center text-xs text-muted-foreground">
           <span>Existing operator? </span>
           <Link
             to="/login"
-            className="text-[#7895B5] hover:text-[#96B2D1] font-mono hover:underline"
+            className="text-primary hover:text-primary font-mono hover:underline"
           >
             Sign in
           </Link>
