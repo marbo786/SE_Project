@@ -66,15 +66,9 @@ AI suggestions require human judgment, especially when they introduce numbers, c
 
 ## Current status and remaining work
 
-This project is prepared for a short demo, not a production-qualified deployment. The core upload → extraction → analysis → review → revision journey is implemented. Broader product extensions and release qualification remain outside the demo scope.
+This project is an academic prototype demonstrated locally, not a production-qualified deployment. The core upload → extraction → analysis → review → revision journey is implemented. Broader product extensions and release qualification remain outside the demo scope.
 
 The main gaps are complete downloadable reports and corrected documents, configurable rubric templates, collaborative/classroom workflows, evaluated semantic suggestions, draft acceptance-test generation, and production operations/validation. See the [remaining-work checklist](docs/REMAINING_WORK.md) for a concrete breakdown and [implementation status](docs/archive/IMPLEMENTATION_STATUS.md) for evidence.
-
-## Local video demo
-
-Run the workspace on localhost for a short screen recording. The demo uses an isolated SQLite database, a local worker and scripted mock responses; it needs no hosted frontend, tunnel, SMTP or API key. It is not production-qualified.
-
-Follow the [local quickstart](docs/DEMO.md), then the [60-second recording guide](docs/DEMO_VIDEO.md) for clips A–G. Reproducible v1/v2 specifications, diagrams, an API-only seeder and a Playwright screenshot workflow live in `demo/`. Mock output demonstrates human review controls, not real AI judgment.
 
 ## Run or contribute
 

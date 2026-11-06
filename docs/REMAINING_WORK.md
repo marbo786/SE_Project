@@ -1,6 +1,6 @@
 # Remaining work before final release
 
-M0–M6 are merged into main. This is the outstanding scope, not a claim that the project is finished. The MIT license has been selected. The local-provider adapter is implemented and merged; real-model quality remains unqualified. These broader milestones are outside the short demo scope; use [DEMO.md](DEMO.md) for the demo.
+M0–M6 are merged into main. This is the outstanding scope, not a claim that the project is finished. The MIT license has been selected. The local-provider adapter is implemented and merged; real-model quality remains unqualified. These broader milestones remain outside the completed academic demo scope.
 
 ## M7 — Product capabilities
 
