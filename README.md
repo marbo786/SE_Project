@@ -70,11 +70,11 @@ This project is prepared for a short demo, not a production-qualified deployment
 
 The main gaps are complete downloadable reports and corrected documents, configurable rubric templates, collaborative/classroom workflows, evaluated semantic suggestions, draft acceptance-test generation, and production operations/validation. See the [remaining-work checklist](docs/REMAINING_WORK.md) for a concrete breakdown and [implementation status](docs/archive/IMPLEMENTATION_STATUS.md) for evidence.
 
-## Demo deployment
+## Local video demo
 
-The static frontend runs on Vercel. Its same-origin `/api` rewrite forwards to an ngrok static domain connected to the laptop's Docker backend, worker, PostgreSQL and Redis. The laptop must stay on during the demo. Development mode and the mock provider are intentional; mock responses are scripted demonstration output, not real AI evaluation.
+Run the workspace on localhost for a short screen recording. The demo uses an isolated SQLite database, a local worker and scripted mock responses; it needs no hosted frontend, tunnel, SMTP or API key. It is not production-qualified.
 
-Follow [the demo guide](docs/DEMO.md) for configuration, startup scripts, the walkthrough and shutdown. No production deployment is claimed.
+Follow the [local quickstart](docs/DEMO.md), then the [60-second recording guide](docs/DEMO_VIDEO.md) for clips A–G. Reproducible v1/v2 specifications, diagrams, an API-only seeder and a Playwright screenshot workflow live in `demo/`. Mock output demonstrates human review controls, not real AI judgment.
 
 ## Run or contribute
 

@@ -38,3 +38,5 @@ tests/artifacts/
 .env.*
 !.env.example
 !.env.demo.example
+.demo-runtime/
+demo/screenshots/
