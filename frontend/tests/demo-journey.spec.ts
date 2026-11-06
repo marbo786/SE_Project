@@ -70,5 +70,7 @@ test('demo sign-in, sample upload, mock analysis, draft comparison and trace CSV
   expect(download.suggestedFilename()).toMatch(/^traceability_.*\.csv$/)
   const csv = readFileSync((await download.path())!, 'utf8')
   expect(csv.trim().split(/\r?\n/).length).toBeGreaterThan(1)
-  expect(csv).toContain('FR-1')
+  const snapshot = await (await page.request.get(`/api/v1/runs/${secondRun}/report`)).json()
+  expect(csv).toContain(snapshot.trace_links[0].source_id)
+  expect(csv.trim().split(/\r?\n/)).toHaveLength(snapshot.trace_links.length + 1)
 })
