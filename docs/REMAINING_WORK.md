@@ -1,6 +1,6 @@
 # Remaining work before final release
 
-M0–M6 are merged into main. This is the outstanding scope, not a claim that the project is finished. The MIT license has been selected. Local-provider implementation on `codex/m7-m8-finalization` has six passing transport/privacy tests but is not yet merged or qualified against a real model.
+M0–M6 are merged into main. This is the outstanding scope, not a claim that the project is finished. The MIT license has been selected. The local-provider adapter is implemented and merged; real-model quality remains unqualified. These broader milestones are outside the short demo scope; use [DEMO.md](DEMO.md) for the demo.
 
 ## M7 — Product capabilities
 
@@ -40,4 +40,4 @@ M0–M6 are merged into main. This is the outstanding scope, not a claim that th
 4. Harden deployment, rehearse restore, and qualify the integrated release.
 5. Publish actual benchmark/usability evidence and release notes; merge only after CI passes.
 
-The full scope and acceptance targets remain in [the implementation plan](../PROJECT_IMPROVEMENT_PLAN.md). OCR, enterprise SSO, object storage and deep issue-tracker integrations are later extensions, not requirements of this release.
+The full scope and acceptance targets remain in [the implementation plan](archive/PROJECT_IMPROVEMENT_PLAN.md). OCR, enterprise SSO, object storage and deep issue-tracker integrations are later extensions, not requirements of this release.

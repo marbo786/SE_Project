@@ -54,7 +54,7 @@ The React/TypeScript client talks to a FastAPI application through a same-origin
 
 Analysis runs use a transactional outbox, worker leases, checkpoints, cancellation, and bounded recovery. A failed newer run preserves the earlier successful report. Review decisions and manual links are annotations; they do not silently rewrite a published machine score.
 
-The AI gateway applies redaction, validated outputs, scoped caching, request/token/cost budgets, and usage auditing. Hosted inference uses the configured Groq provider. A local OpenAI-compatible adapter is being added on the finalization branch; its transport checks pass, but real-model quality is not yet qualified.
+The AI gateway applies redaction, validated outputs, scoped caching, request/token/cost budgets, and usage auditing. Hosted inference uses the configured Groq provider. A loopback-only OpenAI-compatible adapter is implemented in `backend/app/llm/local_provider.py`; real-model quality is not yet qualified.
 
 ## What the results mean
 
@@ -66,9 +66,15 @@ AI suggestions require human judgment, especially when they introduce numbers, c
 
 ## Current status and remaining work
 
-Milestones M0–M6 are merged into `main`. The core upload → extraction → analysis → review → revision journey is implemented. M7 product extensions and M8 release qualification remain unfinished.
+This project is prepared for a short demo, not a production-qualified deployment. The core upload → extraction → analysis → review → revision journey is implemented. Broader product extensions and release qualification remain outside the demo scope.
 
-The main gaps are complete downloadable reports and corrected documents, configurable rubric templates, collaborative/classroom workflows, evaluated semantic suggestions, draft acceptance-test generation, and production operations/validation. See the [remaining-work checklist](docs/REMAINING_WORK.md) for a concrete breakdown and [implementation status](IMPLEMENTATION_STATUS.md) for evidence.
+The main gaps are complete downloadable reports and corrected documents, configurable rubric templates, collaborative/classroom workflows, evaluated semantic suggestions, draft acceptance-test generation, and production operations/validation. See the [remaining-work checklist](docs/REMAINING_WORK.md) for a concrete breakdown and [implementation status](docs/archive/IMPLEMENTATION_STATUS.md) for evidence.
+
+## Demo deployment
+
+The static frontend runs on Vercel. Its same-origin `/api` rewrite forwards to an ngrok static domain connected to the laptop's Docker backend, worker, PostgreSQL and Redis. The laptop must stay on during the demo. Development mode and the mock provider are intentional; mock responses are scripted demonstration output, not real AI evaluation.
+
+Follow [the demo guide](docs/DEMO.md) for configuration, startup scripts, the walkthrough and shutdown. No production deployment is claimed.
 
 ## Run or contribute
 

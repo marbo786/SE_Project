@@ -14,7 +14,7 @@ Tests override database, upload directory, provider, and mail settings before im
 
 Uploads: 10 MB compressed, 50 MB expanded DOCX, at most 1,000 ZIP entries, 100 PDF pages, and 1,000,000 extracted characters. A dedicated parser subprocess has a 20-second timeout and a 512 MB address-space limit on Linux. Native Windows enforces the timeout and input limits; use Linux containers for a hard parser memory ceiling. Development Compose additionally caps API memory at 1 GB. Limits are configurable operating defaults, not measured capacity guarantees. Image-only/encrypted/corrupt files and unsafe PlantUML preprocessing are rejected. Draft replacement preserves the prior file on validation failure; inputs lock when analysis starts.
 
-M6 adds rendered desktop/mobile screenshots, keyboard/focus checks, text-resize checks, and automated accessibility scans. Manual screen-reader review and broader usability qualification remain M8 gates. See [the workspace guide](REVIEW_WORKSPACE.md) and `IMPLEMENTATION_STATUS.md` for evidence and limitations.
+M6 adds rendered desktop/mobile screenshots, keyboard/focus checks, text-resize checks, and automated accessibility scans. Manual screen-reader review and broader usability qualification remain M8 gates. See [the workspace guide](REVIEW_WORKSPACE.md) and [historical implementation status](archive/IMPLEMENTATION_STATUS.md) for evidence and limitations.
 # Revision and history checks
 
 The [revision guide](REVISION_HISTORY.md) covers contracts, backup rehearsal, cutover, and retention. Browser checks use isolated services and data:
