@@ -1,13 +1,14 @@
 # SRS Reviewer
 
-[![CI](https://github.com/marbo786/SRS_Reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/marbo786/SRS_Reviewer/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)
-![Node](https://img.shields.io/badge/node-24-339933?logo=nodedotjs&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
-![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![Python](https://img.shields.io/badge/PYTHON-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Node](https://img.shields.io/badge/NODE-24-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FASTAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/REACT-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TYPESCRIPT-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/POSTGRESQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/DOCKER-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+[![CI/CD](https://img.shields.io/github/actions/workflow/status/marbo786/SRS_Reviewer/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI%2FCD)](https://github.com/marbo786/SRS_Reviewer/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/LICENSE-MIT-blue?style=for-the-badge)](LICENSE)
 
 Upload an SRS and some PlantUML diagrams, and SRS Reviewer flags vague, conflicting or untraceable requirements. Every finding points back to the source text, every score shows how it was calculated, and AI rewrites stay proposals until a person accepts them.
 
@@ -116,7 +117,3 @@ More detail in the [development guide](docs/DEVELOPMENT.md) and [workspace guide
 This is an academic prototype demoed locally, not a production deployment. The upload, extraction, analysis, review and revision flow works end to end. Still open: downloadable PDF/DOCX reports and corrected documents, configurable rubrics, collaboration and classroom features, evaluated semantic suggestions, acceptance-test generation, and production hardening. The full list is in [remaining work](docs/REMAINING_WORK.md).
 
 Deeper docs: [analysis contract](docs/ANALYSIS_CONTRACT.md), [AI safety](docs/AI_SAFETY.md), [revision history](docs/REVISION_HISTORY.md), [worker operations](docs/JOBS.md).
-
-## License
-
-[MIT](LICENSE)
