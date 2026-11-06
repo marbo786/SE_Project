@@ -35,7 +35,7 @@ Suppose an SRS says **“The catalog shall respond fast.”**
 4. Save the corrected statement in a new draft and analyze it again.
 5. Compare reports to see which findings disappeared, persisted, or were introduced.
 
-For a quick walkthrough, download the [synthetic library SRS](frontend/public/sample-requirements.docx), or use **Try a sample review** on the dashboard. Adding UML diagrams extends the review to architecture consistency and traceability.
+For a quick walkthrough, download the [synthetic library SRS](frontend/public/Sample_Requirement/sample-requirements.docx), or use **Try a sample review** on the dashboard. Adding UML diagrams extends the review to architecture consistency and traceability.
 
 ## How it works
 

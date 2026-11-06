@@ -123,7 +123,7 @@ test('keyboard upload recovers in the same saved project after interruption', as
   await choose.focus()
   const chooser = page.waitForEvent('filechooser')
   await page.keyboard.press('Enter')
-  await (await chooser).setFiles(path.resolve('public/sample-requirements.docx'))
+  await (await chooser).setFiles(path.resolve('public/Sample_Requirement/sample-requirements.docx'))
   await page.getByRole('button', { name: /4 Save draft/ }).click()
   await page.getByRole('button', { name: 'Save draft and review extraction' }).click()
   await expect(page.getByText(/Your saved draft is also available/)).toBeVisible()
