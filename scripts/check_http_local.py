@@ -15,6 +15,7 @@ def main(browser=False):
         env = {**os.environ, "DATABASE_URL": "sqlite:///" + str(Path(directory) / "test.db"),
             "UPLOAD_DIR": str(Path(directory) / "uploads"), "MAIL_SINK_DIR": str(Path(directory) / "mail"),
             "APP_ENV": "development", "COOKIE_SECURE": "false", "SMTP_HOST": "", "LLM_PROVIDER": "mock",
+            "JOB_BACKEND": "local", "LLM_PRICING": '{"mock/mock-model-v2":{"input":0,"output":0}}',
             "PUBLIC_URL": "http://127.0.0.1:15173", "CORS_ORIGINS": "http://127.0.0.1:15173",
             "API_PROXY_TARGET": "http://127.0.0.1:18003"}
         subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=root / "backend", env=env, check=True, creationflags=flags)

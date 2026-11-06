@@ -215,7 +215,8 @@ def start_run(db, project, revision, actor_id, *, idempotency_key=None, expected
     required = {"srs", "uml_usecase", "uml_class", "uml_sequence"} if revision.analysis_profile == "architecture" else {"srs"}
     if validate and (missing := required - {a.artifact_type for a in artifacts}):
         raise HTTPException(409, "Upload the required inputs for this profile: " + ", ".join(sorted(missing)))
-    if validate and revision.analysis_mode == "ai" and get_settings().LLM_PROVIDER == "mock":
+    if (validate and revision.analysis_mode == "ai" and get_settings().LLM_PROVIDER == "mock"
+            and get_settings().APP_ENV != "development"):
         raise HTTPException(409, "AI analysis needs a configured provider. Use deterministic analysis for offline checks.")
     try:
         manifest = [artifact_manifest(a) for a in artifacts]
