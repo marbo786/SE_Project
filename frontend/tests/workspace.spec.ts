@@ -64,6 +64,9 @@ test('responsive themes, focus return, and automated accessibility', async ({ pa
   }
   for (const theme of ['dark', 'light']) {
     await page.getByLabel('Appearance').selectOption(theme)
+    const primaryAction = page.getByRole('button', { name: 'Run again', exact: true })
+    await primaryAction.hover()
+    await expect(primaryAction).toHaveCSS('transition-property', 'box-shadow')
     const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
     expect(scan.violations).toEqual([])
     await page.screenshot({ path: info.outputPath(`workspace-${theme}.png`), fullPage: true })
