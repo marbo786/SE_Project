@@ -8,7 +8,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 _test_directory = TemporaryDirectory(prefix="srs-tests-")
 os.environ["TESTING"] = "true"
-os.environ["SECRET_KEY"] = "isolated-tests-only-secret-at-least-32-characters"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["LLM_RUN_COST_BUDGET_MICROUSD"] = "0"
 os.environ["DATABASE_URL"] = "sqlite:///" + str(Path(_test_directory.name) / "bootstrap.db")

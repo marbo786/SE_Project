@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "codex/**" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
@@ -25,7 +25,6 @@ jobs:
         pip install -r requirements-dev.txt
     - name: Run Pytest
       env:
-        SECRET_KEY: test_secret_key_ci_environment_32chars
         LLM_PROVIDER: mock
         TESTING: "true"
         PYTHONPATH: .

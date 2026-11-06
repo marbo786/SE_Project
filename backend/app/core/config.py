@@ -15,8 +15,6 @@ _root_env = os.path.abspath(os.path.join(_backend_dir, "..", ".env"))
 _env_file_path = _backend_env if os.path.exists(_backend_env) else (_root_env if os.path.exists(_root_env) else ".env")
 
 class Settings(BaseSettings):
-    SECRET_KEY: str = "changeme"
-    ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     GROQ_API_KEY: str = ""
     LLM_PROVIDER: str = "mock"
