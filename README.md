@@ -1,41 +1,42 @@
 # SRS Reviewer
 
-**Find unclear requirements, inspect the evidence, and check whether the design supports what the specification promises.**
+[![CI](https://github.com/marbo786/SRS_Reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/marbo786/SRS_Reviewer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)
+![Node](https://img.shields.io/badge/node-24-339933?logo=nodedotjs&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
 
-SRS Reviewer is a requirements-review workspace for software engineering students, instructors, and small teams. It reads Software Requirements Specification (SRS) documents and PlantUML diagrams, runs rule-based checks and optional AI analysis, and helps a reviewer turn findings into a revised specification.
+Upload an SRS and some PlantUML diagrams, and SRS Reviewer flags vague, conflicting or untraceable requirements. Every finding points back to the source text, every score shows how it was calculated, and AI rewrites stay proposals until a person accepts them.
 
-The aim is to make a review explainable and repeatable. A finding should lead back to source text; a score should show its scope and calculation; a proposed rewrite should remain a proposal until a person reviews it.
+It's built for SE students, instructors and small teams. It helps a human review a spec; it doesn't certify that one is correct or complete.
 
-## The problem it addresses
+## What it does
 
-A specification can look complete while leaving important questions unanswered. What does “respond quickly” mean? Are two requirements inconsistent? Does a sequence call an operation that exists on the receiving class? Which requirements have a path to the architecture, and which mappings are only guesses?
+- **Review requirements:** upload DOCX or text-based PDF files, check the extracted paragraphs and tables, and fix text, IDs or classifications before analysis.
+- **Check architecture:** add named use-case, class and sequence diagrams (PlantUML) and find unresolved relationships, operation mismatches, disconnected elements and trace gaps.
+- **Pick a scope:** requirements only, or requirements plus all three diagram types. Deterministic checks work with no AI service at all.
+- **Read the results:** prioritized findings with quoted evidence, source locations, coverage, and scores with their weights. Incomplete runs are marked partial instead of getting a misleading grade.
+- **Use AI suggestions (optional):** testability and conflict checks plus rewrite proposals, with validation and text diffs. Accept, edit or reject each one.
+- **Trace requirements:** confirm or reject candidate links, add manual ones, and follow impact paths into the architecture.
+- **Revise without losing history:** start a new draft, rerun, and compare findings between revisions. Old reports and source files stay available.
+- **Share the output:** search and filter findings, print a full report, download the trace matrix as CSV.
 
-Reviewing those questions manually across documents and diagrams is slow. SRS Reviewer brings the source evidence, checks, trace links, and revision history into one place. It supports human review; it does not certify that a specification is correct or complete.
+Projects are private to their owner. Multi-user projects and classroom workflows are planned, not built.
 
-## What you can do today
+## A quick example
 
-- **Review requirements:** upload DOCX or text-based PDF files, inspect extracted paragraphs and table rows, and correct text, identifiers, or classifications before analysis.
-- **Check architecture:** add multiple named use-case, class, and sequence diagrams in supported PlantUML syntax. Inspect unresolved relationships, operation mismatches, disconnected elements, and trace gaps.
-- **Choose the scope:** run requirements-only checks, or evaluate requirements together with all three architecture diagram types. Deterministic checks work without an AI service.
-- **Understand results:** see prioritized findings, quoted evidence, source locations, evaluated coverage, and category scores with their weights and contributions. Incomplete analysis is marked partial rather than assigned a misleading final grade.
-- **Review AI suggestions:** optionally request testability/conflict checks and rewrite proposals through a bounded AI gateway. Inspect validation results and text differences, then accept, edit, or reject a proposal. Model agreement is not proof that intent was preserved.
-- **Review traceability:** inspect candidate links and their evidence, confirm or reject mappings, add manual links, and follow architecture impact paths. Similarity values are not probabilities of correctness.
-- **Revise without losing history:** create a new draft, apply corrections, rerun analysis, and compare requirement and finding changes. Earlier reports and source files remain available.
-- **Use the workspace comfortably:** search and filter findings, reopen URL-linked review states, use keyboard/mobile navigation, switch themes, print a complete report, and download traceability CSV.
+Say the SRS contains "The catalog shall respond fast."
 
-Projects are private to their owners. Multi-user project membership, instructor submission workflows, and shared review assignments are planned; they are not current product capabilities.
+1. Upload the document and check the extracted requirement against its source.
+2. Run a requirements-only analysis. An ambiguity finding flags the statement.
+3. Work out a real response target with stakeholders (that call is yours, not the tool's).
+4. Save the fix in a new draft and analyze again.
+5. Compare reports to see what disappeared, stayed or showed up.
 
-## A typical review
-
-Suppose an SRS says **“The catalog shall respond fast.”**
-
-1. Upload the document and inspect the extracted requirement against its source.
-2. Run a requirements-only analysis. An ambiguity finding points to the statement that needs clarification.
-3. Determine an appropriate response target with stakeholders. The reviewer—not the tool—decides the required behavior and its conditions.
-4. Save the corrected statement in a new draft and analyze it again.
-5. Compare reports to see which findings disappeared, persisted, or were introduced.
-
-For a quick walkthrough, download the [synthetic library SRS](frontend/public/Sample_Requirement/sample-requirements.docx), or use **Try a sample review** on the dashboard. Adding UML diagrams extends the review to architecture consistency and traceability.
+To try it, grab the [sample library SRS](frontend/public/Sample_Requirement/sample-requirements.docx) or hit "Try a sample review" on the dashboard.
 
 ## How it works
 
@@ -50,40 +51,72 @@ flowchart LR
     Review --> Next[New draft and comparison]
 ```
 
-The React/TypeScript client talks to a FastAPI application through a same-origin API. SQLAlchemy and Alembic manage persistent project, revision, run, and review records. PostgreSQL, Redis, and Celery support the container-based worker setup; SQLite and a local worker support lightweight development.
+React and TypeScript on the front, FastAPI behind a same-origin `/api` proxy. SQLAlchemy and Alembic handle the data. Docker runs Postgres, Redis and Celery; local dev uses SQLite and an in-process worker.
 
-Analysis runs use a transactional outbox, worker leases, checkpoints, cancellation, and bounded recovery. A failed newer run preserves the earlier successful report. Review decisions and manual links are annotations; they do not silently rewrite a published machine score.
+Analysis runs are queued through a transactional outbox with worker leases, checkpoints, cancellation and recovery, so a failed new run never wipes the last good report. Review decisions and manual links are annotations and never silently change a published score.
 
-The AI gateway applies redaction, validated outputs, scoped caching, request/token/cost budgets, and usage auditing. Hosted inference uses the configured Groq provider. A loopback-only OpenAI-compatible adapter is implemented in `backend/app/llm/local_provider.py`; real-model quality is not yet qualified.
+The AI gateway handles redaction, output validation, scoped caching, token and cost budgets, and usage auditing. Hosted inference goes through Groq. A loopback-only OpenAI-compatible adapter exists in `backend/app/llm/local_provider.py`, but its real-model quality hasn't been qualified.
 
-## What the results mean
+## Getting started
 
-Scores summarize checks within the selected scope and rubric. They are useful for explaining identified problems and tracking comparable revisions, not for proving overall software quality. Missing or unextractable evidence does not earn full credit. Different scopes, rule configurations, or analysis versions can make scores non-comparable.
+You need Python 3.13 and Node 24.
 
-The parser supports a documented subset: ordered DOCX paragraphs/tables, text PDFs, and use-case/class/sequence PlantUML constructs. It recognizes supported requirement IDs and whole-word “shall” or “must” statements. Scanned PDFs need OCR, which is not implemented. Complex layouts, text boxes, nested tables, and arbitrary PlantUML syntax are not guaranteed.
+**With Docker**
 
-AI suggestions require human judgment, especially when they introduce numbers, conditions, or exceptions. Existing automated tests and development fixtures establish regression behavior; they do not establish production accuracy, full accessibility conformance, or participant usability.
+```bash
+cp backend/.env.example backend/.env
+docker compose up --build
+```
 
-## Current status and remaining work
+The app is at http://localhost:5173 and the API is at http://localhost:8001.
 
-This project is an academic prototype demonstrated locally, not a production-qualified deployment. The core upload → extraction → analysis → review → revision journey is implemented. Broader product extensions and release qualification remain outside the demo scope.
+**Without Docker**
 
-The main gaps are complete downloadable reports and corrected documents, configurable rubric templates, collaborative/classroom workflows, evaluated semantic suggestions, draft acceptance-test generation, and production operations/validation. See the [remaining-work checklist](docs/REMAINING_WORK.md) for a concrete breakdown and [implementation status](docs/archive/IMPLEMENTATION_STATUS.md) for evidence.
+```bash
+cd backend
+cp .env.example .env
+pip install -r requirements.txt
+python -m alembic upgrade head
+uvicorn app.main:app --port 8000
+```
 
-## Run or contribute
+In another terminal:
 
-Use **Python 3.13 and Node 24**. Follow the [development guide](docs/DEVELOPMENT.md) for installation, migrations, API and worker startup, Docker, and test commands. The [workspace guide](docs/REVIEW_WORKSPACE.md) explains the review flow.
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
-| Area | Location |
-|---|---|
-| API, parsers, rules, AI gateway and workers | `backend/app/` |
-| Database migrations and automated backend tests | `backend/alembic/`, `backend/tests/` |
-| Review interface and browser tests | `frontend/src/`, `frontend/tests/` |
-| Maintained verification and maintenance commands | `scripts/`, `backend/scripts/` |
-| Analysis rules, operating guides and remaining work | `docs/` |
+Vite proxies `/api` to `127.0.0.1:8000`. The default `LLM_PROVIDER=mock` needs no API key. To use hosted AI, set `LLM_PROVIDER=groq` and `GROQ_API_KEY` in `backend/.env`.
 
-Further details: [analysis contract](docs/ANALYSIS_CONTRACT.md), [AI safety](docs/AI_SAFETY.md), [revision history](docs/REVISION_HISTORY.md), and [worker operations](docs/JOBS.md). Historical audit and feasibility documents are retained as project records; current behavior is described above and in the maintained guides.
+**Tests**
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest tests/
+
+cd ../frontend
+npm run build
+npm run test:browser
+```
+
+More detail in the [development guide](docs/DEVELOPMENT.md) and [workspace guide](docs/REVIEW_WORKSPACE.md).
+
+## Limits worth knowing
+
+- Scores only cover the selected scope and rubric. They're good for tracking comparable revisions, not for proving overall quality, and different scopes or rule configs aren't comparable.
+- The parser handles a documented subset: ordered DOCX paragraphs and tables, text PDFs, and use-case, class and sequence PlantUML. Scanned PDFs need OCR, which isn't implemented. Text boxes, nested tables and exotic PlantUML aren't guaranteed.
+- AI suggestions need a human check, especially when they add numbers, conditions or exceptions.
+- The test suite covers regressions, not production accuracy, full accessibility conformance or usability.
+
+## Status
+
+This is an academic prototype demoed locally, not a production deployment. The upload, extraction, analysis, review and revision flow works end to end. Still open: downloadable PDF/DOCX reports and corrected documents, configurable rubrics, collaboration and classroom features, evaluated semantic suggestions, acceptance-test generation, and production hardening. The full list is in [remaining work](docs/REMAINING_WORK.md).
+
+Deeper docs: [analysis contract](docs/ANALYSIS_CONTRACT.md), [AI safety](docs/AI_SAFETY.md), [revision history](docs/REVISION_HISTORY.md), [worker operations](docs/JOBS.md).
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE)
